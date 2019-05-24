@@ -8,9 +8,24 @@
  * Label: DAPI
  *  
  * Tools used: 
- *  3D Object Counter
- *  http://imagejdocu.tudor.lu/plugin/analysis/3d_object_counter/start
+ * 	MorphoLibJ (https://imagej.net/MorphoLibJ)
+ * 	Update site	IJPB-plugins 
+ *  References/Citation:
+ *  Please note that MorphoLibJ is based on a publication. If you use it successfully 
+ *  for your research please be so kind to cite our work:
+ *  Legland, D.; Arganda-Carreras, I. & Andrey, P. (2016), 
+ *  "MorphoLibJ: integrated library and plugins for mathematical 
+ *  morphology with ImageJ", Bioinformatics (Oxford Univ Press) 
+ *  32(22): 3532-3534, PMID 27412086, doi:10.1093/bioinformatics/btw413 (on Google Scholar).
  *  
+ *  3D Object Counter Pluin
+ *  Link: http://imagejdocu.tudor.lu/plugin/analysis/3d_object_counter/start
+ *  References/Citation:
+ *	When using the “3D Object Counter” plugin for publication, please refer to 
+ *	S. Bolte & F. P. Cordelières, A guided tour into subcellular colocalization analysis 
+ *	in light microscopy, Journal of Microscopy, Volume 224, Issue 3: 213-232, to this 
+ *	webpage and of course to ImageJ, as explained in the FAQ section, on ImageJ’s website. 
+ *	A copy of your paper being sent to my e-mail address would also be greatly appreciated !
  *  
  */ 
 
