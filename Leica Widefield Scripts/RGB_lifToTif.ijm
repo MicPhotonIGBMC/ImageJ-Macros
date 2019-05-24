@@ -1,3 +1,14 @@
+/* May 2019
+ * Bertrand Vernay
+ * vernayb@igbmc.fr
+ *  
+ *  Convert .lif to .tiff and apply a gamma vamue of 0.45
+ *  
+ *  
+ */ 
+
+
+
 macro "Brightfield Leica Colour Camera RGB lif to tif [F1]"{
 
 // INITIALISE MACRO
