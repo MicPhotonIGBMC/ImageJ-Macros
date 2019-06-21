@@ -1,38 +1,89 @@
 /** 
  * macro "MetamorphFilesFolderToHyperstacks_"
  * Author : Marcel Boeglin, July 2018 - May 2019
+ * e-mail: boeglin@igbmc.fr
  * 
  * ¤ Opens Metamorph multi-position time-series z-stacks of up to 7
- *   channels from input folder and saves them as hyperstacks to 
+ *   channels from input folder and saves them as hyperstacks to
  *   output folder.
+ *
  * ¤ Only TIFF and STK files are processed.
- * ¤ Channel colors are derived automatically from filennames but 
- *   can be changed by the user.
- *   For example, channels containing RFP, GFP, Dapi or BF in their
- *   names are assumed to be respectively red, green, blue or gray.
+ *
  * ¤ Image files for which no series name was found are skipped.
- * ¤ Calibrates output images in X, Y, Z and T if calibration data
- *   are found
- * ¤ Does optional maximum z-projection of input files and 
- *   color balance of output files.
+ *
+ * ¤ Series having same channel sequence are grouped in channel groups.
+ *   Series of a given channel group are processed using same parameters.
+ *
+ * ¤ Channel colors are determined automatically from filennames using
+ *   red, green, blue, cyan, magenta, yellow and gray determinants but 
+ *   can be changed by the user.
+ *   For instance, the red determinants set is: {"543", "555", "561",
+ *   "594", "CY3", "Y3", "DsRed", "mCherry", "N21", "RFP", "TX2"}.
+ *   Channels containing a red, a green, a blue or a gray determinant in
+ *   their names are assumed to be respectively red, green, blue or gray.
+ *   In future versions, it's planned  to get channel colors from metadata
+ *   in case Metamorph is configured to not add the illumination settings
+ *   to the filenames (which in that case contain just _w1, _w2, ..., _wn).
+ *	 If none of the color determinants sets works with one of our
+ *	 illumination setting names, just add the missing determinant to the 
+ *	 appropriate set. 
+ *
+ * ¤ Dual camera channels handling:
+ *   Assumes channels are saved in separate images. Like in single
+ *   camera acquisitions, colors are derived from filenames. 
+ *   Dual camera filenames are assumed to be of the type:
+ *   seriesName_w1Lambda1 Lambda2...
+ *   seriesName_w2Lambda1 Lambda2...
+ *   One could expect that w1 corresponds to lambda1 and w2 to lambda2, 
+ *   but w1 may correspond to lambda2 and w2 to lambda1, depending on 
+ *   the configuration of Metamorph.
+ *   The dual channel separator (a space in the example) may be another
+ *   character, for instance "-", depending on how dual camera 
+ *   illuminations have been named in Metamorph.
+ *   Dual channel order and separator are managed by the macro but are
+ *   assumed to be the same for all series in a given folder.
+ *   If the dual channel colors attribution fails, arbitrary (probably 
+ *   unwanted) colors are assigned to the channels. In such a case, the
+ *   user can choose the color of each channel for each channel group.
+ *
+ * ¤ Output images are X, Y, Z and T calibrated if calibration data are
+ *   available.
+ *
+ * ¤ Does optional maximum z-projection of input files and color
+ *   balance of output files.
+ *
  * ¤ In case of heterogeneous z-dimensions between channels and 
  *   'Do z-projection' is unchecked, single-section channels
- *   are transformed to z-stacks having same depth as channels
+ *   are transformed into z-stacks having same depth as channels
  *   acquired as z-stacks by duplicating the single-section.
+ *
  * ¤ Series handling dialog is not displayed if larger than screen 
  *   (happens if the folder contains more series than can be added
- *   as checkboxes in a dialog).
+ *   as checkboxes in a dialog). In this case all series are assumed 
+ *   to be processed.
+ * 
  * 
  * Known problems:
+ * 
  * ¤ Temporal calibration fails if timelapse crosses year.
  *   --o-> frame interval = 0 or is false
+ *
  * ¤ Channels handling dialog boxes may be larger than screen if the
  *   folder contains a large number of series having different channel
  *   sequences.
+ *
+ * ¤ Developped under Win7, has not been tested on Linux and Mac-OS
+ *   
+ * 
+ * DEPENDENCY: Z calibration needs tiff_tags plugin to be installed:
+ * See:
+ * https://imagej.nih.gov/ij/plugins/tiff-tags.html
+ * 
 */
 
+var dBug = false;
 var macroName = "MetamorphFilesFolderToHyperstacks";
-var version = "42x";
+var version = "43e";
 var author = "Author: Marcel Boeglin 2018-2019";
 var msg = macroName+"\nVersion: "+version+"\n"+author;
 var info = "Created by "+macroName+"\n"+author;
@@ -59,9 +110,12 @@ var colors = newArray("Red", "Green", "Blue", "Grays",
 //To change dialog defaults, modify variables below:
 
 //Add your channel determinants to arrays below to auto-assign color.
-//If a determinant appears in different colors, only first one is used.
+//If a determinant appears in multiple colors, the order of priority is
+//red, green, blue, gray, cyan, magenta, yellow.
 var redDeterminants = newArray("543", "555", "561", "594", "CY3", "Y3",
 		"DsRed", "mCherry", "N21", "RFP", "TX2");
+		//"Y5", "633", "642", "647");
+		//ESSAI: IR en rouge si pas d'autre canal rouge
 var greenDeterminants = newArray("GFP", "FITC", "488", "491");
 var blueDeterminants = newArray("405", "CFP", "CY5", "DAPI", "HOECHST", "Y5",
 		"633", "642", "647");
@@ -70,6 +124,20 @@ var grayDeterminants = newArray("BF", "DIC", "PH", "TL", "TRANS");
 var cyanDeterminants = newArray("CFP");
 var magentaDeterminants = newArray("CY5", "Y5");
 var yellowDeterminants = newArray("YFP");
+
+
+/** dualCameraSettings
+ * Enter in this array all dual channel settings you may have to process 
+ */
+var dualCameraSettings = newArray("_w1CSU491 561", "_w1CSU488-561");
+//equivalent to " "
+var dualChannelSeparator = "(\\s)";//Nikon spinning disk at IGBMC;
+//var isDualChannelSingleImage = false;
+
+//For Leica spinning disk at IGBMC, dualChannelSeparator = "-"
+var firstDualChannelIllumSetting_is_w1 = true;//A REMPLACER PAR INFRA
+//if true, w1 corresponds to 2nd illum setting
+var invertedDualChannelIllumSettingsOrder = false;
 
 var XYZUnitChoices = newArray("pixel", "nm", "micron", "um", "µm", 
 								"mm", "cm", "m");
@@ -85,7 +153,7 @@ var calibrationOptions = newArray("Don't calibrate anything",
 var XYCalibrations, ZCalibrations, TimeIntervals;
 var XYZUnits, TUnits;
 
-/** if true, channels for which only 1st timepoint was recorded are ignored */
+/** if true, channels for which only 1st timepoint was recorded are ignored*/
 var ignoreSingleTimepointChannels = true;
 
 //var autoscale = true;
@@ -194,7 +262,7 @@ var positionExists, isCompletePosition;
 var userPositionsSeriesBySeries;
 
 
-/** doChannelsFromSequences: array of length the number of channel sequences */
+/** doChannelsFromSequences: array of length the number of channel sequences*/
 var doChannelsFromSequences;
 /** doZprojForChannelSequences: array of length the number of channel
 * sequences */
@@ -208,7 +276,7 @@ var projTypesForChannelSequences;
 * to which belongs each series */
 var seriesChannelGroups;
 
-//NOUVELLES VARIABLES, pour channelColorsAndSaturationsDialog():
+//VARIABLES for channelColorsAndSaturationsDialog():
 var channelSequencesColors;
 var channelSequencesSaturations;
 
@@ -302,7 +370,7 @@ function searchFile(dir, filename) {
 }
 
 function findPlugin(pluginName) {
-	print("\nfindPlugin("+pluginName+")");
+	//print("\nfindPlugin("+pluginName+")");
 	pluginsDir = getDirectory("plugins");
 	return fileExists(pluginsDir, pluginName);
 }
@@ -390,16 +458,18 @@ function execute() {
 	print(msg+"\n ");
 	print(features);
 	startTime = getTime();
+	dualCameraDialog();
 	fileFilterAndCalibrationParamsDialog();
 	tiff_tags_plugin_installed = findPlugin("tiff_tags.jar");
 	if (tiff_tags_plugin_installed)
 		print("tiff_tags.jar is installed");
 	else
-		print("To calibrate Z-interval automatically install tiff_tags plugin");
+		print("To calibrate Z-interval automatically "+
+				"install tiff_tags plugin");
 	list = getFiles(dir1);
 	print("File list:");
 	for (i=0; i<list.length; i++) print(list[i]);
-	//keep only TIFF & STK files matching fileFilter but not excludingFilter
+	//keep only TIFF & STK files matching fileFilter, not excludingFilter
 	list = filterList(list, fileFilter, excludingFilter);
 	seriesNames = getSeriesNames(list);
 	//print("execute() : nSeries = "+nSeries);
@@ -427,17 +497,14 @@ function execute() {
 	seriesChannelSequences = getSeriesChannelSequences();
 	channelSequences = getChannelSequences(seriesChannelSequences);
 	seriesWithSameChannels = groupSeriesHavingSameChannelSequence();
-	assignChannelGroupToSeries();
 	print("");
 	nSeries = seriesNames.length;
 	getImageTypes_MaxWidhs_MaxHeights();
-	//getSeriesImageTypes_Widhs_Heights();//remplace par supra
-	//getSeriesCompleteness_imageTypes_MaxImageWidhsAndHeights();//ANCIEN
 	for (i=0; i<nSeries; i++) {
 		print("seriesChannelGroups["+i+"] = "+seriesChannelGroups[i]);
 	}
 
-//	print("execute() :");
+//	print("execute():");
 	seriesFileNumbers = getSeriesFileNumbers(seriesFilenamesStr);
 	print("");
 	for (i=0; i<seriesFileNumbers.length; i++) {
@@ -462,7 +529,7 @@ function execute() {
 	for (i=0; i<nSeries; i++) {
 		//print("doSeries["+i+"] = "+doSeries[i]);
 		fnames = split(seriesFilenamesStr[i], ",");
-		n = getPositionsNumber(fnames, seriesNames[i]);//renvoie val fausse
+		n = getPositionsNumber(fnames, seriesNames[i]);//false return
 		positionNumbers[i] = n;
 		//print("positionNumbers["+i+"] = "+positionNumbers[i]);
 		if (n > maxPositions) maxPositions = n;
@@ -473,7 +540,6 @@ function execute() {
 	findPositionsSeriesBySeries(list);
 	positionsSeriesBySeriesDialog(list);
 
-//	startTime = getTime();
 	processFolder();
 	finish();
 }
@@ -482,6 +548,7 @@ function execute() {
  * Problem if more series than maximum number of checkboxes 
  * that can be dispayed in a single dialog window */
 function displaySeriesNamesDialog() {
+	dbg = false;
 	len = 0;
 	for (i=0; i<nSeries; i++) {
 		len2 = lengthOf(seriesNames[i]);
@@ -492,7 +559,7 @@ function displaySeriesNamesDialog() {
 	minimalCheckboxWidth = 22;//pixels
 	maxCols = floor((screenWidth - 2 * dialogBorderWidth) /
 			(len * charWidth + minimalCheckboxWidth));
-	print("displaySeriesNamesDialog() : maxCols = "+maxCols);
+	if (dbg) print("displaySeriesNamesDialog() : maxCols = "+maxCols);
 	Dialog.create(macroName);
 	Dialog.addMessage("Process series:");
 	unavailableHeight = 144;//dialog height if no series to be displayed
@@ -506,15 +573,16 @@ function displaySeriesNamesDialog() {
 	else {
 		rows = maxRows;
 		columns = floor(nSeries/rows)+0;
-		print("maxRows = "+maxRows);
-		print("rows = "+rows);
-		print("columns = "+columns);
+		if (dbg) print("maxRows = "+maxRows);
+		if (dbg) print("rows = "+rows);
+		if (dbg) print("columns = "+columns);
 		while (columns*rows<nSeries) columns++;
-		print("columns = "+columns);
+		if (dbg) print("columns = "+columns);
 		while (columns*rows>nSeries+columns) rows--;
-		print("rows = "+rows);
-		print("nSeries = "+nSeries);
-		print("columns * rows  = "+columns*rows);//must be >= nSeries
+		if (dbg) print("rows = "+rows);
+		if (dbg) print("nSeries = "+nSeries);
+		//columns*rows must be >= nSeries
+		if (dbg) print("columns * rows  = "+columns*rows);
 		Dialog.addCheckboxGroup(rows, columns, seriesNames, doSeries);
 	}
 	if (columns>maxCols) {
@@ -530,42 +598,6 @@ function displaySeriesNamesDialog() {
 	for (i=0; i<nSeries; i++) {
 		print("Series "+i+" : "+seriesNames[i]+
 				" : doSeries["+i+"] = "+doSeries[i]);
-	}
-}
-
-/** Calculates image widths, heights and types of selected series
- * Assumes all images in a series have same type, width and height
- * Opens first image of each series and gets type, width and height */
-function getSeriesImageTypes_Widhs_Heights() {
-	print("\nnSeries = "+nSeries);
-	imageTypes = newArray(nSeries);
-	imageWidhs = newArray(nSeries);
-	imageHeights = newArray(nSeries);
-	imageDepths = newArray(nSeries);//POUR LE MOMENT ON N'UTILISE PAS
-	for (i=0; i<seriesFilenamesStr.length; i++) {
-		fnames = seriesFilenamesStr[i];
-		fnamesArray = split(fnames, "(,)");
-		setBatchMode(true);
-		bitdepth = 16;
-		for (j=0; j<fnamesArray.length; j++) {
-			print("fnamesArray["+j+"] = " + fnamesArray[j]);//juste
-			path = dir1 + fnamesArray[j];
-			if (!File.exists(path)) continue;//ne devrait jamais etre le cas
-			open(path, 1);
-			bitdepth = bitDepth();
-			width = getWidth();
-			height = getHeight();
-			close();
-			break;
-		}
-		if (bitdepth==8) imageTypes[i] = "8-bit";
-		else if (bitdepth==16) imageTypes[i] = "16-bit";
-		else if (bitdepth==24) imageTypes[i] = "RGB";
-		imageWidhs[i] = width;
-		imageHeights[i] = height;
-		print("imageWidhs["+i+"] = "+imageWidhs[i]);
-		print("imageHeights["+i+"] = "+imageHeights[i]);
-		setBatchMode(false);
 	}
 }
 
@@ -589,15 +621,20 @@ function getSeriesCompleteness() {//NOT USED
 	}
 }
 
-function getImageTypes_MaxWidhs_MaxHeights() {//versus series
-	print("\nnSeries = "+nSeries);
+/** Finds image types, maxWidths and maxHeights of series to be processed */
+function getImageTypes_MaxWidhs_MaxHeights() {
+	dbg = false;
+	if (dbg) print("\nnSeries = "+nSeries);
 	imageTypes = newArray(nSeries);
 	maxImageWidhs = newArray(nSeries);
 	maxImageHeights = newArray(nSeries);
-	maxImageDepths = newArray(nSeries);//INUTILISE POUR LE MOMENT
-	for (i=0; i<seriesFilenamesStr.length; i++) {
+	maxImageDepths = newArray(nSeries);//Currently not used nor implemented
+	for (i=0; i<nSeries; i++) {
+	//for (i=0; i<seriesFilenamesStr.length; i++) {
 		//print("");
 		fnames = seriesFilenamesStr[i];
+		if (dbg) print("Series "+i);
+		if (dbg) print("fnames = "+fnames);
 		fnamesArray = split(fnames, "(,)");
 		maxW = 0; maxH = 0;
 		setBatchMode(true);
@@ -614,7 +651,7 @@ function getImageTypes_MaxWidhs_MaxHeights() {//versus series
 			//print("str = "+str);
 			if (!startsWith(str, "_w")) {//single wavelength
 				path = dir1 + fname;
-				print("fname = "+fname);
+				if (dbg) print("fname = "+fname);
 				if (!File.exists(path)) continue;
 				open(path, 1);
 				bitdepth = bitDepth();
@@ -644,7 +681,7 @@ function getImageTypes_MaxWidhs_MaxHeights() {//versus series
 		if (bitdepth==8) imageTypes[i] = "8-bit";
 		else if (bitdepth==16) imageTypes[i] = "16-bit";
 		else if (bitdepth==24) imageTypes[i] = "RGB";
-		print("maxW = "+maxW+"    maxH = "+maxH);
+		//print("maxW = "+maxW+"    maxH = "+maxH);
 		maxImageWidhs[i] = maxW;
 		maxImageHeights[i] = maxH;
 		print("maxImageWidhs["+i+"] = "+maxImageWidhs[i]);
@@ -665,8 +702,43 @@ function getSeriesCalibrationOptions() {//not used
 	calibrationOption = Dialog.getChoice();
 }
 
-function fileFilterAndCalibrationParamsDialog() {
+var machine = "Spinning Disk / Nikon - IGBMC";
+
+function dualCameraDialog() {
+	machines = newArray(3);
+	machines[0] = "Spinning Disk / Nikon - IGBMC";
+	machines[1] = "Spinning Disk / Leica - IGBMC";
+	machines[2] = "Other";
 	Dialog.create(macroName);
+	Dialog.addMessage("Dual Camera series:");
+	Dialog.addChoice("Machine", machines);
+	Dialog.addMessage("If input folder contains no Dual Camera series,"+
+		"\nanswer is not used.");
+	Dialog.addMessage("If Machine == Other,"+
+		"\nyou may have to change first Checkbox and String"+
+		"\nin next dialog.");
+	Dialog.addMessage("N.B.:"+
+		"\nIt's assumed that all dual channel series in input"+
+		"\n folder have been done using the same machine.");
+	Dialog.show();
+	machine = Dialog.getChoice();
+}
+
+function fileFilterAndCalibrationParamsDialog() {
+	firstDualChannelIllumSetting_is_w1 = true;
+	if (machine=="Spinning Disk / Leica - IGBMC")
+		firstDualChannelIllumSetting_is_w1 = false;
+	dualChannelSeparator = "-";
+	if (machine=="Spinning Disk / Nikon - IGBMC")
+		dualChannelSeparator = "(\\s)";
+	Dialog.create(macroName);
+	Dialog.addMessage("Dual Camera Series:");
+	Dialog.addMessage("Example of wavelengths: _w1CSU491 561, _w2CSU491 561");
+	Dialog.addCheckbox("First Illumination Setting is w1",
+			firstDualChannelIllumSetting_is_w1);
+	Dialog.addString("Illumination Settings Separator (parentheses for Regex)",
+			dualChannelSeparator);
+	Dialog.addMessage("All Series:");
 	Dialog.addString("Process Filenames containing", fileFilter);
 	Dialog.addString("Exclude Filenames containing", excludingFilter);
 	Dialog.addCheckbox("No series have channel-dependent binning",
@@ -697,6 +769,8 @@ function fileFilterAndCalibrationParamsDialog() {
 
 	Dialog.show();
 
+	firstDualChannelIllumSetting_is_w1 = Dialog.getCheckbox();
+	dualChannelSeparator = Dialog.getString();
 	fileFilter = Dialog.getString();
 	excludingFilter = Dialog.getString();
 	noChannelDependentBinning = Dialog.getCheckbox();
@@ -721,33 +795,21 @@ function fileFilterAndCalibrationParamsDialog() {
 	print("ignoreSingleTimepointChannels = "+ignoreSingleTimepointChannels);
 }
 
-function assignChannelGroupToSeries() {
-	seriesChannelGroups = newArray(nSeries);
-	for (i=0; i<nSeries; i++) {
-		for (j=0; j<seriesWithSameChannels.length; j++) {
-			//print("seriesWithSameChannels["+j+"] = "+
-			//		seriesWithSameChannels[j]);
-			if (indexOf(seriesWithSameChannels[j], seriesNames[i])>=0) {
-				seriesChannelGroups[i] = j;
-				break;
-			}
-		}
-	}
-}
-
 /**
   * Display may be incomplete if many channel groups with many channels
  */
 function channelGroupsHandlingDialog() {
+	dbg = false;
 	doChannelsFromSequences = newArray(seriesWithSameChannels.length);
 	doZprojForChannelSequences = newArray(seriesWithSameChannels.length);
 	projTypesForChannelSequences = newArray(seriesWithSameChannels.length);
-	Dialog.create(macroName+"  -  Channel handling");
+	Dialog.create(macroName+"  -  Channels handling");
 	for (i=0; i<seriesWithSameChannels.length; i++) {
 	 	seriesnames = toArray(seriesWithSameChannels[i], ",");
 		if (i>0) Dialog.addMessage("");
 		Dialog.addChoice("Channel group "+i+"", seriesnames);
-
+		Dialog.addToSameRow();
+		Dialog.addMessage("(for information)");
 	 	Dialog.addToSameRow();//marche pas apres addCheckboxGroup
 	 	Dialog.addCheckbox("Do Z-projections", doZprojsByDefault);
 
@@ -785,18 +847,18 @@ function channelGroupsHandlingDialog() {
 	}
 	for (i=0; i<doChannelsFromSequences.length; i++) {//verification
 		//print("\nSeries: "+seriesnames[i]);//plante ds certains cas
-		print("doChannelsFromSequences["+i+"] = "+doChannelsFromSequences[i]);
-		print("doZprojForChannelSequences["+i+"] = "+
+		if (dbg) print("doChannelsFromSequences["+i+"] = "+
+				doChannelsFromSequences[i]);
+		if (dbg) print("doZprojForChannelSequences["+i+"] = "+
 				doZprojForChannelSequences[i]);
-		print("projTypesForChannelSequences["+i+"] = "+
+		if (dbg) print("projTypesForChannelSequences["+i+"] = "+
 				projTypesForChannelSequences[i]);
 	}
 }
 
-/**
- * Display may be incomplete if many channel groups with many channels
- */
+/** Display may be incomplete if many channel groups with many channels */
 function channelColorsAndSaturationsDialog() {
+	dbg = false;
 	channelSequencesColors = newArray(seriesWithSameChannels.length);
 	channelSequencesSaturations = newArray(seriesWithSameChannels.length);
 	Dialog.create(macroName+"  -  Channel colors and saturations");
@@ -806,6 +868,8 @@ function channelColorsAndSaturationsDialog() {
 	 	if (i>0) Dialog.addMessage("");
 	 	seriesnames = toArray(seriesWithSameChannels[i], ",");
 		Dialog.addChoice("Channel group "+i+"", seriesnames);
+		Dialog.addToSameRow();
+		Dialog.addMessage("(for information)");
 
 	 	channelSeq = channelSequences[i];
 	 	chns = toArray(channelSeq, ",");
@@ -837,9 +901,10 @@ function channelColorsAndSaturationsDialog() {
 	}
 	for (i=0; i<doChannelsFromSequences.length; i++) {//verification
 		seriesnames = toArray(seriesWithSameChannels[i], ",");
-		print("\nSeries :"+seriesNames[i]+":");
-		print("channelSequencesColors["+i+"] = "+channelSequencesColors[i]);
-		print("channelSequencesSaturations["+i+"] = "+
+		if (dbg) print("\nSeries :"+seriesNames[i]+":");
+		if (dbg)
+			print("channelSequencesColors["+i+"] = "+channelSequencesColors[i]);
+		if (dbg) print("channelSequencesSaturations["+i+"] = "+
 				channelSequencesSaturations[i]);
 	}
 }
@@ -1031,10 +1096,10 @@ function findPositionsSeriesBySeries(filenames) {
 	}
 }
 
-//Pb : les positions desactivees ne st pas les bonnes (semble resolu)
 //AFFICHE LES POSITIONS SUR DES LIGNES HORIZONTALES DANS PLUSIEURS DIALOGUES
 //SI NECESSAIRE POUR EVITER QUE LEUR HAUTEUR DEPASSE CELLE DE L'ECRAN
 function positionsSeriesBySeriesDialog(filenames) {
+	dbg = false;
 	print("");
 	print("positionsSeriesBySeriesDialog: seriesNames.length = "
 			+seriesNames.length);
@@ -1057,9 +1122,9 @@ function positionsSeriesBySeriesDialog(filenames) {
 	seriesPerWindow = floor(multipositionSeries / nWindows);
 	seriesInLastWindow = multipositionSeries % nWindows;
 	if (seriesInLastWindow==0) seriesInLastWindow = seriesPerWindow;
-	print("nWindows = "+nWindows);
-	print("seriesPerWindow = "+seriesPerWindow);
-	print("seriesInLastWindow = "+seriesInLastWindow);
+	if (dbg) print("nWindows = "+nWindows);
+	if (dbg) print("seriesPerWindow = "+seriesPerWindow);
+	if (dbg) print("seriesInLastWindow = "+seriesInLastWindow);
 	//Create dialogs
 	index = 0;
 	seriesIndex = 0;
@@ -1073,10 +1138,10 @@ function positionsSeriesBySeriesDialog(filenames) {
 	}
 	index0 = index;
 	//index0 = numero 1ere position de positionsSeriesBySeries a traiter
-	print("index0 = "+index0);
+	if (dbg) print("index0 = "+index0);
 	//seriesIndex0 = numero 1ere serie a taiter
 	seriesIndex0 = seriesIndex;
-	print("seriesIndex0 = "+seriesIndex0);
+	if (dbg) print("seriesIndex0 = "+seriesIndex0);
 	for (w=0; w<nWindows; w++) {
 		Dialog.create(macroName);
 		Dialog.addMessage("Choose positions to be processed:");
@@ -1091,7 +1156,7 @@ function positionsSeriesBySeriesDialog(filenames) {
 			if (doSeries[k] && n>1) {
 				lines++;
 				Dialog.addMessage(seriesNames[k]+":");
-				print("n = "+n);
+				if (dbg) print("n = "+n);
 				n2 = 0;
 				//n2 : nb de positions reellement presentes, different de n
 				for (i=index; i<index+n; i++) {
@@ -1184,7 +1249,7 @@ function positionsSeriesBySeriesDialog(filenames) {
 	}
 }
 
-function printParams() {
+function printParams() {//TODO: add missing params
 	print("");
 	//print(macroName+" Parameters:");
 	print("Parameters:");
@@ -1428,10 +1493,11 @@ function getChannelRightDelimiter(str) {//returns string after channel name
 
 /** Finds series names in filenames array */
 function getSeriesNames(filenames) {
+	dbg = false;
 	nFiles = filenames.length;
 	print("\nnFiles = "+nFiles);
 	tmp = newArray(nFiles);
-	//print("\nFile names\n ");
+	if (dbg) print("\nFile names\n ");
 	for (i=0; i<nFiles; i++) {
 		name = filenames[i];
 		//print("filename: "+name);
@@ -1440,7 +1506,7 @@ function getSeriesNames(filenames) {
 		splittenName = split(name, "("+delim+")");
 		tmp[i] = splittenName[0];
 	}
-//	print("\ntmp:");
+	if (dbg) print("\ntmp:");
 //	for (i=0; i<tmp.length; i++) print(tmp[i]);
 	names = newArray(nFiles);
 	alreadyAdded = newArray(tmp.length);
@@ -1456,9 +1522,9 @@ function getSeriesNames(filenames) {
 		}
 	}
 	nSeries = j+1;
-	//print("nSeries = "+j+1);
+	if (dbg) print("nSeries = "+j+1);
 	names = Array.trim(names, nSeries);
-	print("\nrawSeriesNames:");
+	//print("\nrawSeriesNames:");
 	for (i=0; i<names.length; i++) print(names[i]);
 	nSeries = names.length;
 	for (i=0; i<names.length; i++) {
@@ -1481,80 +1547,56 @@ function getSeriesNames(filenames) {
 	return filteredSeriesNames;
 }
 
-/**
+/** BUG resolu 43e : melangeait series qd les noms etaient 1, 2, 3 etc avec pour
+ * consequence des channelGroups conenant plusieurs un m canal (-> plantage)
  * Renvoie un tableau de dimension nSeries dont les elements sont les filenames 
- * separes par des virgules
+ * de chaque serie separes par des virgules
  */
 function getSeriesFilenames(filenames) {
-	//print("\ngetSeriesFilenames(filenames) :");
-	//seriesNames = getSeriesNames(filenames);//normalement deja fait avant
+	dbg = false;
+	if (dbg) print("\ngetSeriesFilenames(filenames) :");
+	//seriesNames = getSeriesNames(filenames);//already invoked
 	filenamesArray = newArray(nSeries);
 	n = 0;
 	for (j=0; j<seriesNames.length; j++) {
 		seriesName = seriesNames[j];
-	//	print("seriesName = "+seriesName);
+		if (dbg) print("\nseriesName = "+seriesName);
 		filenamesStr = "";
 		for (i=0; i<filenames.length; i++) {
-		//	print("filenames["+i+"] = "+filenames[i]);
-			index = indexOf(filenames[i],seriesNames[j]);
-			if (index<0) continue;
-			//endOfName = substring(filenames[i],index+lengthOf(seriesName));
-			endOfName = substring(filenames[i], lengthOf(seriesName));
-		//	print ("endOfName = "+endOfName);
+			fname = filenames[i];
+			if (!startsWith(fname, seriesName)) continue;
+			if (dbg) print("fname = "+fname);
+			endOfName = substring(fname, lengthOf(seriesName)-0);
+			if (dbg) print ("endOfName = "+endOfName);
 			ext = getExtension(endOfName);
-			//if (!startsWith(endOfName, ext) && !startsWith(endOfName, "_t")
 			endOfName = substring(endOfName, 0, lastIndexOf(endOfName, ext));
-			contains_w = false;
-			wSplit = split(endOfName, "(_w\\d{1})");
-//			if (wSplit.length > 2) continue;//necessaire
-			for (k=0; k<wSplit.length; k++) {
-				if (startsWith(wSplit[k], "_w")) contains_w = true;
-				//print("wSplit["+k+"] = "+wSplit[k]);
-			}
-			//print("contains_w = "+contains_w);
-	//		if (contains_w) continue;
-			contains_s = false;
-			sSplit = split(endOfName, "(_s\\d{1,3})");
-//			if (sSplit.length > 2) continue;
-			for (k=0; k<sSplit.length; k++) {
-				if (startsWith(sSplit[k], "_s")) contains_s = true;
-				//print("sSplit["+k+"] = "+sSplit[k]);
-			}
-			//print("contains_s= "+contains_s);
-	//		if (contains_s) continue;
-			contains_t = false;
-			tSplit = split(endOfName, "(_t\\d{1,5})");
-//			if (tSplit.length > 2) continue;
-			for (k=0; k<tSplit.length; k++) {
-				if (startsWith(tSplit[k], "_t")) contains_t = true;
-				//print("tSplit["+k+"] = "+tSplit[k]);
-			}
-			//print("contains_t = "+contains_t);
-	//		if (contains_t) continue;
-			//getSeriesFileNumbers() : nSeries = 8"+i+"] = "+filenames[i]);
-//			if (matches(filenames[i], seriesName+"_"+".*")) {
-				filenamesStr = filenamesStr + filenames[i] + ",";
-				n++;
-//			}
+			if (dbg) print ("endOfName = "+endOfName);
+			if (endOfName!="" && !startsWith(endOfName, "_w")
+							&& !startsWith(endOfName, "_s")
+							&& !startsWith(endOfName, "_t")) continue;
+			filenamesStr = filenamesStr + filenames[i] + ",";
+			n++;
 		}
-		//print("filenamesStr = "+filenamesStr);//ICI ICI ICI parfois ""
+		if (dbg) print("filenamesStr = "+filenamesStr);
 		filenamesStr = substring(filenamesStr, 0, lengthOf(filenamesStr)-1);
+		if (dbg) print("filenamesStr = "+filenamesStr);
 		filenamesArray[j] = filenamesStr;
 	}
-	//print("getSeriesFilenames(filenames) end");
+	if (dbg) print("getSeriesFilenames(filenames) end");
 	return filenamesArray;
 }
 
 function getSeriesFileNumbers(seriesFilenamesStr) {
+	dbg = false;
 	nSeries = seriesFilenamesStr.length;
-	//print("getSeriesFileNumbers() : nSeries = "+nSeries);
+	if (dbg) print("getSeriesFileNumbers() : nSeries = "+nSeries);
 	seriesFileNumbers = newArray(nSeries);
 	separator = ",";
 	for (i=0; i<nSeries; i++) {
 		a = toArray(seriesFilenamesStr[i], separator);
-		//print("\n"+seriesNames[i] + " :");
+		if (dbg) print("\n"+seriesNames[i] + " :");
 		for (j=0; j<a.length; j++) {
-			//print(a[j]);
+			if (dbg) print(a[j]);
 		}
 		seriesFileNumbers[i] = a.length;
 	}
@@ -1577,9 +1619,11 @@ function getSeriesTimePoints(filenames) {
 
 /** returns the array of file extensions of channels used in series */
 function getExtensions(filenames, seriesName) {
+	dbg = false;
 	nFiles = getFilesNumber(seriesName);
 	channels = getChannelNames(filenames, seriesName);
 	nChn = channels.length;
+	if (dbg) print("getExtensions(filenames, seriesName): nChn = "+nChn);
 	exts = newArray(nChn);
 	for (k=0; k<nChn; k++) {
 		if (channels[k]==seriesName) channels[k]="";
@@ -1587,7 +1631,8 @@ function getExtensions(filenames, seriesName) {
 		for (i=0; i<filenames.length; i++) {
 			name = filenames[i];
 			name = seriesNameLessFilename(name, seriesName);
-			if (!matches(name, "_"+".*")) continue;
+			//excludes filenames without "_":
+			//if (!matches(name, "_"+".*")) continue;
 			if (matches(name, channels[k]+".*")) {
 				ext = getExtension(name);
 				exts[k] = ext;
@@ -1616,25 +1661,29 @@ function isMultiChannel(filenames, seriesName) {
 }
 
 
-/* renvoie seriesWithSameChannels
- * Renvoie un tableau de dimension egale au nb de sequences _w1, _w2, ...,
- * presentes dans dir1 et dont les elements sont les noms des series
- * faites avec une sequence donnee separes par des virgules;
- * pourrait renvoyer les numeros des series (0 a nSeries) a la place */
+/* - Renvoie seriesWithSameChannels :
+ *   tableau de dimension egale au nb de sequences _w1, _w2, ...,
+ *   presentes dans dir1 et dont les elements sont les noms des series
+ *   faites avec une sequence donnee separes par des virgules;
+ *   pourrait renvoyer les numeros des series (0 a nSeries) a la place
+ * - Assigne les elements du tableau seriesChannelGroups (variable generale) */
 function groupSeriesHavingSameChannelSequence() {//fonctionne
+	dbg = false;
 	nSeq = channelSequences.length;
 	a = newArray(nSeq);//number of different sequences
+	seriesChannelGroups  = newArray(nSeries);
 	for (i=0; i<nSeq; i++) {
 		a[i] = "";
 		for (j=0; j<nSeries; j++) {
 			if (seriesChannelSequences[j] == channelSequences[i]) {
 				a[i] = a[i] + seriesNames[j] + ",";
+				seriesChannelGroups[j] = i;
 			}
 		}
 		a[i] = substring(a[i], 0, lengthOf(a[i]) - 1);
 	}
 	for (i=0; i<a.length; i++) {
-		print("a["+i+"] = "+a[i]);
+		if (dbg) print("a["+i+"] = "+a[i]);
 	}
 	return a;
 }
@@ -1645,6 +1694,7 @@ function groupSeriesHavingSameChannelSequence() {//fonctionne
  * par des virgules (reduction du tableau seriesChannelSequences() renvoye
  * par getSeriesChannelSequences() a ses elements non redondants) */
 function getChannelSequences(seriesChannelSequences) {
+	dbg = true;
 	n = seriesChannelSequences.length;//n = nSeries
 	seqs = newArray(n);
 	seqs[0] = seriesChannelSequences[0];
@@ -1660,10 +1710,10 @@ function getChannelSequences(seriesChannelSequences) {
 		if (newSeq)
 			seqs[nSeq++] = seriesChannelSequences[i];
 	}
-	print("nSeq = "+nSeq);
+	if (dbg) print("nSeq = "+nSeq);
 	seqs = Array.trim(seqs, nSeq);
 	for (i=0; i<nSeq; i++) {
-		print("seqs["+i+"] = "+seqs[i]);
+		if (dbg) print("seqs["+i+"] = "+seqs[i]);
 	}
 	return seqs;
 }
@@ -1672,40 +1722,42 @@ function getChannelSequences(seriesChannelSequences) {
  * Renvoie un tableau de dimension nSeries dont les elements sont les 
  * channelNames separes par des virgules */
 function getSeriesChannelSequences() {//semble fonctionner
+	dbg = false;
+	dbg2 = false;
 	//print("\ngetSeriesChannelSequences():");
 	//print("nSeries = "+nSeries);
 	seriesChannels = newArray(nSeries);
 	for (i=0; i<nSeries; i++) {
-		//print("");
-		//print("seriesFilenamesStr["+i+"] = "+seriesFilenamesStr[i]);//ok
+		if (dbg) print("");
+		if (dbg) print("seriesFilenamesStr["+i+"] = "+seriesFilenamesStr[i]);//ok
 		fnames = split(seriesFilenamesStr[i], "(,)");
 		chn = newArray(fnames.length);
-		//print("fnames.length = "+fnames.length);
+		if (dbg) print("fnames.length = "+fnames.length);
 		alreadyAdded = newArray(fnames.length);
 		for (j=0; j<fnames.length; j++) {
 			chn[j] = "";
 			alreadyAdded[j] = "";
 		}
-		//print("seriesNameLess names");
+		if (dbg) print("seriesNameLess names");
 		k = 0;
 		for (j=0; j<fnames.length; j++) {
 			seriesNameLessName = substring(fnames[j],
 					lengthOf(seriesNames[i]), lengthOf(fnames[j]));
-			//print(seriesNameLessName);//ok
+			if (dbg) print(seriesNameLessName);//ok
 			delim = getChannelRightDelimiter(seriesNameLessName);
-			//print("getSeriesChannelSequences() :"+
-			//	"\nChannelRightDelimiter = delim = "+delim);
+			if (dbg) print("getSeriesChannelSequences() :"+
+				"\nChannelRightDelimiter = delim = "+delim);
 			index1 = lastIndexOf(seriesNameLessName, "_w");
 			if (index1<0) continue;
 			index2 = indexOf(seriesNameLessName, delim);
 			str = substring(seriesNameLessName, index1, index2);//ok
-			//print("str = "+str);
+			if (dbg2) print("str = "+str);
 			addit = true;
-			//print("j = "+j);
-			//print("k = "+k);
-			//print("addit = "+addit);
+			if (dbg2) print("j = "+j);
+			if (dbg2) print("k = "+k);
+			if (dbg2) print("addit = "+addit);
 			if (j==0) {
-				//print("chn[k] = str;");
+				if (dbg2) print("chn[k] = str;");
 				chn[k] = str;
 				alreadyAdded[k] = str;
 				k++;
@@ -1733,7 +1785,7 @@ function getSeriesChannelSequences() {//semble fonctionner
 		chn = Array.trim(chn, nchn);
 		seriesChannels[i] = "";
 		for (j=0; j<chn.length; j++) {
-			//print("chn["+j+"] = "+chn[j]);
+			if (dbg) print("chn["+j+"] = "+chn[j]);
 			seriesChannels[i] = seriesChannels[i] + chn[j] + ",";
 		}
 		if (endsWith(seriesChannels[i], ",")) {
@@ -1776,10 +1828,11 @@ function getFilesNumber(seriesName) {
 //A REVOIR
 /** returns array of channel names used in given series */
 function getChannelNames(filenames, seriesName) {
+	dbg = false;
 	//print("\n"+seriesName);
 	nFiles = getFilesNumber(seriesName);
-	//print("getChannelNames(filenames, seriesName): nFiles in series = "
-	//		+nFiles);
+	if (dbg) print("getChannelNames(filenames, seriesName): nFiles in series = "
+			+nFiles);
 	tmp = newArray(nFiles+1);
 	j = 0;
 	//print("filenames:");
@@ -1788,12 +1841,11 @@ function getChannelNames(filenames, seriesName) {
 		name = seriesNameLessFilename(name, seriesName);
 		//PEUT-ETRE PB si _w dans seriesNames[k] (probablement pas)
 		if (!matches(name, "_w\\d"+".*")) continue;
-	//	print("seriesName = "+seriesName);
-		//print("seriesNameLessFilename = "+name);
-		//print(name);
+		if (dbg) print("seriesName = "+seriesName);
+		if (dbg) print("seriesNameLessFilename = "+name);
 		//delim = getChannelRightDelimiter(seriesName+name);
 		delim = getChannelRightDelimiter(name);
-		//print("ChannelRightDelimiter = delim = "+delim);
+		if (dbg) print("ChannelRightDelimiter = delim = "+delim);
 		index1 = lengthOf(seriesName);
 		index2 = indexOf(seriesName+name, delim);
 		str = substring(seriesName+name, index1, index2);
@@ -1818,8 +1870,8 @@ function getChannelNames(filenames, seriesName) {
 	//if (nChn==0) return newArray(seriesName);
 	if (nChn==0) return newArray("");
 	channels = Array.trim(channels, nChn);
-	//print("nChn = "+j);
-	//for (i=0; i<channels.length; i++) print(channels[i]);
+	if (dbg) print("nChn = "+j);
+	if (dbg) for (i=0; i<channels.length; i++) print(channels[i]);
 	return channels;
 }
 
@@ -1838,19 +1890,20 @@ function isMultiPosition(filenames, seriesName) {
 
 //renvoie parfois une valeur fausse (semble ok depuis 41j)
 function getPositionsNumber(filenames, seriesName) {
-	//print("getPositionsNumber(filenames, "+seriesName+")");
+	dbg = false;
+	if (dbg) print("getPositionsNumber(filenames, "+seriesName+")");
 	mp = isMultiPosition(filenames, seriesName);
 	if (!mp) return 1;
 	ts = isTimeSeries(filenames, seriesName);
 	positionDelimiter = ".";
 	if (ts) positionDelimiter = "_t";
 	nFiles = getFilesNumber(seriesName);
-	print("nFiles in series "+seriesName+" : "+nFiles);
+	if (dbg) print("nFiles in series "+seriesName+" : "+nFiles);
 	j = 0;
 	nPositions = 1;
 	for (i=0; i<filenames.length; i++) {
 		name = filenames[i];
-		//print(seriesName);
+		if (dbg) print(seriesName);
 		name = seriesNameLessFilename(name, seriesName);
 		if (!matches(name, "_"+".*")) continue;
 		if (matches(name, ".*_s\\d{1,3}.*")) {
@@ -1881,25 +1934,28 @@ function isTimeSeries(filenames, seriesName) {
 }
 
 function getFramesNumber(filenames, seriesName) {
+	dbg = false;
 	ts = isTimeSeries(filenames, seriesName);
 	if (!ts) return 1;
 	timeDelimiter = ".";
 	nFiles = getFilesNumber(seriesName);
-	//print("getFramesNumber(filenames, seriesName) nFiles in series = "+nFiles);
+	if (dbg)
+		print("getFramesNumber(filenames, seriesName) nFiles in series = "+
+			nFiles);
 	j = 0;
 	nFrames = 0;
-	//print("filenames:");
+	if (dbg) print("filenames:");
 	for (i=0; i<filenames.length; i++) {
 		name = filenames[i];
 		name = seriesNameLessFilename(name, seriesName);
 		if (!matches(name, "_"+".*")) continue;
-		//print(name);
+		if (dbg) print(name);
 		if (matches(name, ".*_t\\d{1,5}.*")) {
 			splittenName = split(name, "(_t)");
 			str = splittenName[splittenName.length-1];//last element
-			//print("str: "+str);
+			if (dbg) print("str: "+str);
 			timeStr = substring(str, 0, indexOf(str, timeDelimiter));
-			//print("posStr: "+posStr);
+			if (dbg) print("posStr: "+posStr);
 			n = parseInt(timeStr);
 			nFrames = maxOf(nFrames, n);
 			j++;
@@ -1913,6 +1969,7 @@ function getFramesNumber(filenames, seriesName) {
  * of series corresponding to seriesNameIndex
  * EN COURS */
 function getFrameNumbers(filenames, seriesIndex) {
+	dbg = false;
 	seriesName = seriesNames[seriesIndex];
 	ts = isTimeSeries(filenames, seriesName);
 	chnSeq = toArray(seriesChannelSequences[seriesIndex], ",");
@@ -1924,22 +1981,24 @@ function getFrameNumbers(filenames, seriesIndex) {
 			//channelSuffix = channels[channelIndex];
 			timeDelimiter = ".";
 			nFiles = getFilesNumber(seriesName);
-//print("getFramesNumbers(filenames, seriesName) nFiles in series = "+nFiles);
+			if (dbg)
+				print("getFramesNumbers(filenames, seriesName) nFiles in series = "
+					+nFiles);
 			j = 0;
 			nframes = 0;
-			//print("filenames:");
+			if (dbg) print("filenames:");
 			for (i=0; i<filenames.length; i++) {
 				name = filenames[i];
 				name = seriesNameLessFilename(name, seriesName);
 				if (!matches(name, "_"+".*")) continue;
 				if (!matches(name, chnSeq[k]+".*")) continue;
-				//print(name);
+				if (dbg) print(name);
 				if (matches(name, ".*_t\\d{1,5}.*")) {
 					splittenName = split(name, "(_t)");
 					str = splittenName[splittenName.length-1];//last element
-					//print("str: "+str);
+					if (dbg) print("str: "+str);
 					timeStr = substring(str, 0, indexOf(str, timeDelimiter));
-					//print("posStr: "+posStr);
+					if (dbg) print("posStr: "+posStr);
 					n = parseInt(timeStr);
 					nframes = maxOf(nframes, n);
 					j++;
@@ -1961,12 +2020,153 @@ function getExtension(filename) {
 	return s;
 }
 
+/**
+ * Returns an array of same length as chns
+ * chns : array of wave names (illumination setting names)
+ * Ewample:
+ * if chns = {"w1CSU405, "_w2CSU488 CSU561", "_w3CSU488 CSU561"}
+ * returns {false, true, true}
+ */
+function isDualCameraChannel(chns) {//Not used
+	a = newArray(chns.length);
+	for (i=0; i<chns.length-1; i++) {
+		str1 = chns[i]; str2 = chns[i+1]; 
+		if (substring(str2, 3,
+				lengthOf(str2))==substring(str1, 3, lengthOf(str1))) {
+			a[i] = true;
+			a[i+1] = true;
+		}
+	}
+	return a;
+}
+
+/**
+ * Returns true if chns contains a dual channel sequence, i.e. 
+ * a sequence like ("_w2CSU488 CSU561", "_w3CSU488 CSU561").
+ * chns : array of wavelengths
+ * Returns false if dual channels are stiched in a single image
+ */
+function hasDualChannelSet(chns) {
+	if (chns.length<2) return false;
+	//dual camera channels must have same illumination settings and be consecutive
+	for (i=0; i<chns.length-1; i++) {
+		str1 = chns[i]; str2 = chns[i+1]; 
+		if (substring(str2, 3,
+				lengthOf(str2))==substring(str1, 3, lengthOf(str1))) {
+			return true;
+		}
+	}
+	return false;
+}
+
+//ATTENTION : chercher dans les metadata
+
+/**
+ * Returns true if chns contains a dual channel sequence but only one
+ * image containing both channels.
+// * Returns true if this series is a dual camera series and channels are in
+// * same image.
+ */
+function hasDualChannelSingleImage(chns) {
+//function hasDualChannelSingleImage(seriesName) {
+	for (i=0; i<chns.length-1; i++) {
+		for (j=0; j<dualCameraSettings.length; j++)
+			if (chns[i]==dualCameraSettings[j]) {
+				if (chns.length==1 || chns[i+1]!=dualCameraSettings[j])
+					return true;
+		}
+	}
+	return false;
+}
+
+function toLitteral(regex) {
+	dbg = false;
+	str = regex;
+	if (dbg) print("toLitteral(): str = "+str);
+	 str = replace(str, "\\(\\\\s\\)", " ");//space
+	 str = replace(str, "\\(\\\\t\\)", "	");//tab
+	if (dbg) print("toLitteral(): str = "+str);
+	return str;
+}
+
+/**
+ * Returns wave names in chns
+ * @chns array of wave names (illumination setting names)
+ * Assumes dual channel names are separated by a space ("\\s")
+ * Example:
+ * if chns = {"w1CSU405, "_w2CSU488 CSU561", "_w3CSU488 CSU561"}
+ * returns {"CSU405", "CSU488", " 561"}
+ */
+function getIlluminationSettings(chns, separator) {
+	dbg = false;
+	if (!hasDualChannelSet(chns)) {
+		print("Series has no DualChannelSet");
+		return chns;
+	}
+	//separator = "\\s";
+	isRegex = startsWith(separator, "(") && endsWith(separator, ")");
+	if (dbg) print("isRegex = "+isRegex);
+	separatorRE = separator;
+	separatorLitteral = separator;
+	if (isRegex) {
+		separatorLitteral = toLitteral(separator);
+		if (dbg) print("separatorLitteral = "+separatorLitteral);
+	}
+	else {
+		separatorRE = "("+separator+")";
+	}
+	print("Series has a DualChannelSet");
+	a = newArray(chns.length);
+	for (i=0; i<chns.length-1; i++) {
+		a[i] = chns[i];
+		str1 = chns[i]; str2 = chns[i+1];
+		//print("str1 = "+str1);
+		//print("str2 = "+str2);
+		s1 = substring(str1, 3, lengthOf(str1));
+		s2 = substring(str2, 3, lengthOf(str2));
+		//print("s1 = "+s1);
+		//print("s2 = "+s2);
+		if (substring(str2, 3, 
+				lengthOf(str2))==substring(str1, 3, lengthOf(str1))) {
+			prefix1 = substring(str1, 0, 3);
+			prefix2 = substring(str2, 0, 3);
+			//print("prefix1 = "+prefix1);
+			//print("prefix2 = "+prefix2);
+			a[i+1] = chns[i+1];
+			b = split(str1, separatorRE);
+			if (b.length==2) {
+				if (firstDualChannelIllumSetting_is_w1) {
+					a[i] = b[0];
+					a[i+1] = prefix2 + separatorLitteral + b[1];
+				}
+				else {
+					a[i+1] = b[0];
+					a[i] = prefix2 + separatorLitteral + b[1];
+				}
+			}
+			i++;
+		}
+	}
+	if (dbg) print("\n \ngetIlluminationSettings");
+	for (i=0; i<a.length; i++) {
+		if (dbg) 
+			print("getIlluminationSettings(): illuminationSettings["+i+
+			"] = "+a[i]);
+	}
+	return a;
+}
+
 function initChannelColorIndexes(chns) {
+	dbg = false;
+	illumSettings = getIlluminationSettings(chns, dualChannelSeparator);
+	print("\ninitChannelColorIndexes(chns):");
+	for (i=0; i<illumSettings.length; i++)	
+		print("illumSettings["+i+"] = "+illumSettings[i]);
 	idx = newArray(chns.length);
 	for (i=0; i<chns.length; i++) {
 		found = false;
 		for (j=0; j<redDeterminants.length; j++) {
-			if (indexOf(toLowerCase(chns[i]),
+			if (indexOf(toLowerCase(illumSettings[i]),
 					toLowerCase(redDeterminants[j]))>0) {
 				idx[i] = 0;
 				found = true;
@@ -1975,7 +2175,7 @@ function initChannelColorIndexes(chns) {
 			if (found) continue;
 		}
 		for (j=0; j<greenDeterminants.length; j++) {
-			if (indexOf(toLowerCase(chns[i]),
+			if (indexOf(toLowerCase(illumSettings[i]),
 					toLowerCase(greenDeterminants[j]))>0) {
 				idx[i] = 1;
 				found = true;
@@ -1984,7 +2184,7 @@ function initChannelColorIndexes(chns) {
 			if (found) continue;
 		}
 		for (j=0; j<blueDeterminants.length; j++) {
-			if (indexOf(toLowerCase(chns[i]),
+			if (indexOf(toLowerCase(illumSettings[i]),
 					toLowerCase(blueDeterminants[j]))>0) {
 				idx[i] = 2;
 				found = true;
@@ -1993,7 +2193,7 @@ function initChannelColorIndexes(chns) {
 			if (found) continue;
 		}
 		for (j=0; j<grayDeterminants.length; j++) {
-			if (indexOf(toLowerCase(chns[i]),
+			if (indexOf(toLowerCase(illumSettings[i]),
 					toLowerCase(grayDeterminants[j]))>0) {
 				idx[i] = 3;
 				found = true;
@@ -2002,7 +2202,7 @@ function initChannelColorIndexes(chns) {
 			if (found) continue;
 		}
 		for (j=0; j<cyanDeterminants.length; j++) {
-			if (indexOf(toLowerCase(chns[i]),
+			if (indexOf(toLowerCase(illumSettings[i]),
 					toLowerCase(cyanDeterminants[j]))>0) {
 				idx[i] = 4;
 				found = true;
@@ -2011,7 +2211,7 @@ function initChannelColorIndexes(chns) {
 			if (found) continue;
 		}
 		for (j=0; j<magentaDeterminants.length; j++) {
-			if (indexOf(toLowerCase(chns[i]),
+			if (indexOf(toLowerCase(illumSettings[i]),
 					toLowerCase(magentaDeterminants[j]))>0) {
 				idx[i] = 5;
 				found = true;
@@ -2020,7 +2220,7 @@ function initChannelColorIndexes(chns) {
 			if (found) continue;
 		}
 		for (j=0; j<yellowDeterminants.length; j++) {
-			if (indexOf(toLowerCase(chns[i]),
+			if (indexOf(toLowerCase(illumSettings[i]),
 					toLowerCase(yellowDeterminants[j]))>0) {
 				idx[i] = 6;
 				found = true;
@@ -2029,9 +2229,9 @@ function initChannelColorIndexes(chns) {
 			if (found) continue;
 		}
 	}
-	//for (i=0; i<idx.length; i++) {
-	//	print("channelIndexes["+i+"] = "+idx[i]);
-	//}
+	if (dbg) for (i=0; i<idx.length; i++) {
+		print("channelIndexes["+i+"] = "+idx[i]);
+	}
 	return idx;
 }
 
@@ -2088,6 +2288,7 @@ function ensureColorIndexesAreDifferent(colourIndexes) {
  * param channelCompositeStrings: the array of "c"+i strings, i=1,7
  * 		defining channel colors and positions in the composite image */
 function reorderChannels(chns, channelCompositeStrings) {
+	dbg = false;
 	nchn = chns.length;
 	reorderedChannels = Array.copy(chns);
 	chnPositions = newArray(nchn);
@@ -2106,8 +2307,8 @@ function reorderChannels(chns, channelCompositeStrings) {
 			}
 		}
 	}
-	for (i=0; i<reorderedChannels.length; i++) {
-		//print("reorderedChannels["+i+"] = "+reorderedChannels[i]);
+	if (dbg) for (i=0; i<reorderedChannels.length; i++) {
+		print("reorderedChannels["+i+"] = "+reorderedChannels[i]);
 	}
 	return reorderedChannels;
 }
@@ -2123,19 +2324,20 @@ function hasDuplicateColorIndex(colourIndexes) {
 
 function getChannelColors(chns, ensureColorsAreDifferent) {
 	//returns an array having "c1","c2",...,"c7" as elements
+	dbg = false;
 	idx = initChannelColorIndexes(chns);
 	cycle = 1;
 	hasDuplicateColor = false;
 	while (hasDuplicateColorIndex(idx) && cycle++ < 7) {
-		//print("cycle = "+cycle);
+		if (dbg) print("cycle = "+cycle);
 		if (ensureColorsAreDifferent)
 			idx = ensureColorIndexesAreDifferent(idx);
-		for (i=0; i<idx.length; i++) {
-			//print("idx["+i+"] = "+idx[i]);
+		if (dbg) for (i=0; i<idx.length; i++) {
+			print("idx["+i+"] = "+idx[i]);
 		}
 	}
-	for (i=0; i<idx.length; i++) {
-		//print("idx["+i+"] = "+idx[i]);
+	if (dbg) for (i=0; i<idx.length; i++) {
+		print("idx["+i+"] = "+idx[i]);
 	}
 	channelColorIndexes = newArray(idx.length);
 	for (i=0; i<idx.length; i++) {
@@ -2144,12 +2346,12 @@ function getChannelColors(chns, ensureColorsAreDifferent) {
 	clrs = newArray(chns.length);
 	for (i=0; i<idx.length; i++) {
 		clrs[i] = compositeChannels[idx[i]];
-		//print("clrs["+i+"] = "+clrs[i]);
+		if (dbg) print("clrs["+i+"] = "+clrs[i]);
 	}
 	return clrs;
 }
 
-//Traitement Metadata
+//Metadata processing
 ///////////////////////////////////////////////////////////////////////////////
 var MMMetadataEntries = newArray(
 //	Description-tag entry		Array-index	Macro-variable				Type
@@ -2170,7 +2372,7 @@ var MMMetadataEntries = newArray(
 	"_MagSetting_",					//	14	objective					string
 	"number-of-planes");			//	15	numberOfPlanes				int
 
-//donnees provenant directement du description-tag
+//donnees directement issues du description-tag
 var pixelsX;//int
 var pixelsY;//int
 var bitsPerPixel;//int
@@ -2237,15 +2439,16 @@ function printMetadata() {
 	print("numberOfPlanes = "+numberOfPlanes);
 }
 
-var indexForZPosition;
+var searchIndexForZPosition;
 var searchStartIndex;
 /**
  * assigns pixelsX etc. to values found in tag 
  * and returns the new searchStartIndex */
 function extractValue(tag, param, searchStartIndex) {
+	dbg = false;
 	if (tag=="" || tag==0) return -1;
 	//indexOf(string, substring, fromIndex)
-	//print("extractValue(tag, param, searchStartIndex)");
+	if (dbg) print("extractValue(tag, param, searchStartIndex)");
 	if (indexOf(tag, "MetaMorph") < 0)
 		return -1;
 	index1 = indexOf(tag, param, searchStartIndex);
@@ -2253,7 +2456,7 @@ function extractValue(tag, param, searchStartIndex) {
 	index3 = indexOf(tag, "/>", index2);
 	index4 = indexOf(tag, "/>", index3);
 	valStr = substring(tag, index2+7, index3-1);
-	print(param + " = "+valStr);
+	if (dbg) print(param + " = "+valStr);
 	if (param==MMMetadataEntries[0])
 		pixelsX = parseInt(valStr);
 	else if (param==MMMetadataEntries[1])
@@ -2277,7 +2480,7 @@ function extractValue(tag, param, searchStartIndex) {
 		acquisitionTimeStr = valStr;
 	else if (param==MMMetadataEntries[9]) {
 		modificationTimeStr = valStr;
-		indexForZPosition = index4;
+		searchIndexForZPosition = index4;
 	}
 	else if (param==MMMetadataEntries[10])
 		zPosition = parseFloat(valStr);
@@ -2296,12 +2499,14 @@ function extractValue(tag, param, searchStartIndex) {
 }
 
 function getDescriptionTag(path, IFD, imageID, tiff_tags_plugin_installed) {
+	dbg = false;
 	tag = "";
 	tagNum = 270;
 	if (tiff_tags_plugin_installed) {
 		tag = call("TIFF_Tags.getTag", path, tagNum, IFD);
 	}
-	if (indexOf(tag, "ImageJ")>-1 || IFD==1) {//image ouverte et 
+	if (indexOf(tag, "ImageJ")>-1 || IFD==1) {
+		//image saved through ImageJ or 1st slice
 		id = getImageID();
 		selectImage(imageID);
 		tag = getImageInfo();
@@ -2317,12 +2522,13 @@ function getDescriptionTag(path, IFD, imageID, tiff_tags_plugin_installed) {
 		}
 	}
 */
-	print("tag:");
-	print(tag);
+	if (dbg) print("\nDescription tag:");
+	if (dbg) print(tag);
 	return tag;
 }
 
 function getImageMetadata(path, imageID, tiff_tags_plugin_installed) {
+	dbg = false;
 	//public static String getTag(String path, int tag, int ifd);
 	tagNum = 270;
 	IFD = 1;
@@ -2333,15 +2539,16 @@ function getImageMetadata(path, imageID, tiff_tags_plugin_installed) {
 	if (tag=="" || tag==0) return false;
 	//if (!startsWith(tag, "<MetaData>")) return false;
 	if (indexOf(tag, "<MetaData>")<0) return false;
-	//print("getImageMetadata(path, imageID, tiff_tags_plugin_installed)");
+	if (dbg)
+		print("getImageMetadata(path, imageID, tiff_tags_plugin_installed)");
 	searchStartIndex = 0;
 	for (i=0; i<MMMetadataEntries.length; i++) {
 	 	searchStartIndex = extractValue(tag,
 	 									MMMetadataEntries[i],
 	 									searchStartIndex);
-		//print("searchStartIndex = "+searchStartIndex);
-		//print("MMMetadataEntries["+i+"] = "+MMMetadataEntries[i]);
-		//print("acquisitionTimeStr = "+acquisitionTimeStr);
+		if (dbg) print("searchStartIndex = "+searchStartIndex);
+		if (dbg) print("MMMetadataEntries["+i+"] = "+MMMetadataEntries[i]);
+		if (dbg) print("acquisitionTimeStr = "+acquisitionTimeStr);
 	 	if (searchStartIndex==-1) return false;
 	}
 	if (numberOfPlanes>1 && tiff_tags_plugin_installed) {
@@ -2351,9 +2558,8 @@ function getImageMetadata(path, imageID, tiff_tags_plugin_installed) {
 //	//	if (indexOf(tag, "<MetaData>")<0) return false;
 		if (indexOf(tag, "<MetaData>")<0)
 			print("Could not determine z-calibration");
-		extractValue(tag, "z-position", indexForZPosition);
+		extractValue(tag, "z-position", searchIndexForZPosition);
 		zPositionEnd = zPosition;
-		//print("acquisitionTimeStr = "+acquisitionTimeStr);
 	}
 	print("acquisitionTimeStr = "+acquisitionTimeStr);
 	return true;
@@ -2365,31 +2571,31 @@ function computeZInterval() {
 	return ZInterval;
 }
 
-//ajout variables:
+//added to take in account image-acquisition month & year:
 var acquisitionYear, acquisitionMonth;
 function computeAcquisitionDayAndTime(timeStr) {
+	dbg = false;
 	if (timeStr=="" || timeStr==0) return false;
 	acquisitionDay = NaN;
 	acquisitionTime = NaN;
-	//print("timeStr = "+timeStr);
+	if (dbg) print("timeStr = "+timeStr);
 	date = substring(timeStr, 0, 8);
 	year = parseInt(substring(date, 0, 4));
 	month = parseInt(substring(date, 4, 6));
 	day = parseInt(substring(date, 6, 8));
 	tStr = substring(timeStr, 9, lengthOf(timeStr));
-	//print("tStr = "+tStr);
+	if (dbg) print("tStr = "+tStr);
 	hourOfDay = parseInt(substring(tStr, 0, 2));
 	minute = parseInt(substring(tStr, 3, 5));
 	second = parseInt(substring(tStr, 6, 8));
-	//print(substring(tStr, 9, 11));
 	millisecond = parseInt(substring(tStr, 9, 12));
-	//print("year = "+year);
-	//print("month = "+month);
-	//print("day = "+ day);
-	//print("hourOfDay = "+hourOfDay);
-	//print("minute = "+minute);
-	//print("second = "+second);
-	//print("millisecond = "+millisecond);
+	if (dbg) print("year = "+year);
+	if (dbg) print("month = "+month);
+	if (dbg) print("day = "+ day);
+	if (dbg) print("hourOfDay = "+hourOfDay);
+	if (dbg) print("minute = "+minute);
+	if (dbg) print("second = "+second);
+	if (dbg) print("millisecond = "+millisecond);
 	timeMillis = millisecond+(second+(minute+hourOfDay*60)*60)*1000;
 	acquisitionYear = year;
 	acquisitionMonth = month;
@@ -2416,19 +2622,22 @@ function recalculateVoxelDepth(value, oldUnit, newUnit) {
 	}
 	else if (newUnit=="mm") {
 		if (oldUnit=="nm") val /= 1000000;
-		else if (oldUnit=="micron"||oldUnit=="um"||newUnit=="µm") val /= 1000;
+		else if (oldUnit=="micron"||oldUnit=="um"||newUnit=="µm")
+			val /= 1000;
 		else if (oldUnit=="cm") val *= 10;
 		else if (oldUnit=="m") val *= 1000;
 	}
 	else if (newUnit=="cm") {
 		if (oldUnit=="nm") val /= 10000000;
-		else if (oldUnit=="micron"||oldUnit=="um"||newUnit=="µm") val /= 10000;
+		else if (oldUnit=="micron"||oldUnit=="um"||newUnit=="µm")
+			val /= 10000;
 		else if (oldUnit=="mm") val /= 10;
 		else if (oldUnit=="m") val *= 100;
 	}
 	else if (newUnit=="m") {
 		if (oldUnit=="nm") val /= 1000000000;
-		else if (oldUnit=="micron"||oldUnit=="um"||newUnit=="µm") val /= 1000000;
+		else if (oldUnit=="micron"||oldUnit=="um"||newUnit=="µm")
+			val /= 1000000;
 		else if (oldUnit=="mm") val /= 1000;
 		else if (oldUnit=="cm") val /= 100;
 	}
@@ -2448,8 +2657,9 @@ function computeMonthLengths(year) {
 
 /** Computes number of days between two timepoints
  *  acquisitionYears, acquisitionMonths, acquisitionDays: arrays of dimension 2; 
- *  first element --o-> timepoint 0, second element--o-> timepoint 1 */
+ *  first element = timepoint 0, second element = timepoint 1 */
 function daysInterval(Years, Months, Days) {
+	dbg = true;
 	monthLengths0 = computeMonthLengths(Years[0]);
 	monthLengths1 = computeMonthLengths(Years[1]);
 	nDays = 0;
@@ -2465,7 +2675,7 @@ function daysInterval(Years, Months, Days) {
 			for (i=Months[0]+1; i<Months[1]; i++) {
 				nDays += monthLengths0[i]; 
 			}
-			print("nDays = "+nDays);
+			if (dbg) print("nDays = "+nDays);
 			return nDays;
 		}
 	}
@@ -2476,9 +2686,10 @@ function daysInterval(Years, Months, Days) {
  *  Fails if timelapse crosses year */
 function computeTimelapseDuration(acquisitionYears, acquisitionMonths, 
 		acquisitionDays, acquisitionTimes) {
+	dbg = true;
 	//dt = 0;
-	print("acquisitionTimes[1] = "+acquisitionTimes[1]);
-	print("acquisitionTimes[0] = "+acquisitionTimes[0]);//0
+	if (dbg) print("acquisitionTimes[1] = "+acquisitionTimes[1]);
+	if (dbg) print("acquisitionTimes[0] = "+acquisitionTimes[0]);//0
 	dt = acquisitionTimes[1] - acquisitionTimes[0];
 	days = acquisitionDays[1] - acquisitionDays[0];
 	months = acquisitionMonths[1] - acquisitionMonths[0];
@@ -2491,33 +2702,17 @@ function computeTimelapseDuration(acquisitionYears, acquisitionMonths,
 				acquisitionDays);
 		dt += days*24*60*60*1000;
 	}
-	print("dt = "+dt);
+	if (dbg) print("dt = "+dt);
 	return dt;
 }
 
-/** Returns time interval in ms between first frame and last frame
- *  Fails if timelapse crosses month
- *  Obsolete; use computeTimelapseDuration instead */
-function computeTimelapseDuration_OLD(acquisitionDays, acquisitionTimes) {
-	dt = 0;
-	//print("acquisitionTimes[1] = "+acquisitionTimes[1]);
-	//print("acquisitionTimes[0] = "+acquisitionTimes[0]);
-	dt = acquisitionTimes[1] - acquisitionTimes[0];
-	days = acquisitionDays[1] - acquisitionDays[0];
-	if (days>0) //crossing days but not any month
-		dt += days*24*60*60*1000;
-	else if (days<0) {//crossing month; le test est faillible
-		//traiter le cas
-		//faire un tableau des longueurs des mois tenant compte
-		//des annees bisextiles
-	}
-	print("dt = "+dt);
-	return dt;
-}
-
-//A garder (peut etre utile)
+/** not used
+ * extracts parameter 'param' as a string from description tag of a 
+ * Metamorph image 
+ */
 function extractValueAsString(tag, param) {
-	//print(tag);
+	dbg = true;
+	if (dbg) print(tag);
 /*
 	tokens=split(tag, "(> <)");
 	for (i=0; i<tokens.length; i++) {
@@ -2532,14 +2727,14 @@ function extractValueAsString(tag, param) {
 	index2 = indexOf(tag, "value=", index1);
 	index3 = indexOf(tag, "/>", index2);
 	str = substring(tag, index2+7, index3-1);
-	print(param + " = "+str);
+	if (dbg) print(param + " = "+str);
 	return str;
 }
 //////////////////////////////////////////////////////////////////////////
-//Traitement Metadata : Fin
-
+//End metadata processing
 
 function processFolder() {
+	dbg = false;
 	setBatchMode(true);
 	filterExtensions = isExtensionFilter(fileFilter);
 	print("filterExtensions = "+filterExtensions);
@@ -2586,23 +2781,27 @@ function processFolder() {
 					" and height: skipped");
 			continue;
 		}
-		//imageDepths = newArray(nSeries);//N'EST PAS UTILISE POUR LE MOMENT
+		//imageDepths = newArray(nSeries);//Currently not used
 		fnames = split(seriesFilenamesStr[i], ",");
 		//nFilesInSeries = fnames.length;
 		nFilesInSeries = seriesFileNumbers[i];//~ supra
-		print("nFilesInSeries = "+nFilesInSeries);
-		channelGroupIndex = seriesChannelGroups[i];
-		print("channelGroupIndex = "+channelGroupIndex);
+		if (dbg) print("nFilesInSeries = "+nFilesInSeries);
+		channelGroupIndex = seriesChannelGroups[i];//FAUX
+		if (dbg) print("channelGroupIndex = "+channelGroupIndex);
 		doChannels = toArray(doChannelsFromSequences[channelGroupIndex], ",");
-		for (k=0; k<doChannels.length; k++) {
+		if (dbg) for (k=0; k<doChannels.length; k++) {
 			print("doChannels["+k+"] = "+doChannels[k]);
 		}
 		nChannels = 0;
 		for (c=0; c<doChannels.length; c++) {
 			if (doChannels[c]) nChannels++;
 		}
-		//channels = getChannelNames(fnames, seriesNames[i]);//ancien
-		channelsToDo = toArray(seriesChannelSequences[i], ",");//nouveau
+		if (dbg) print("nChannels = "+nChannels);
+		//channels = getChannelNames(fnames, seriesNames[i]);//old
+		channelsToDo = toArray(seriesChannelSequences[i], ",");//new
+		if (dbg) for (q=0; q<channelsToDo.length; q++) {
+			print("channelsToDo["+q+"] = "+channelsToDo[q]);
+		}
 		print("ProcessFolder(): seies number "+i+":");
 		chnColors = toArray(
 			channelSequencesColors[channelGroupIndex], ",");
@@ -2621,7 +2820,7 @@ function processFolder() {
 		saturations = newArray(nChannels);
 		k=0;
 		for (c=0; c<channelsToDo.length; c++) {
-			if (doChannels[c]) {
+			if (doChannels[c]) {//sometimes index out of range
 				channels[k] = channelsToDo[c];
 				seiesColors[k] = chnColors[c];
 				saturations[k] = chnSaturations[c];
@@ -2634,19 +2833,26 @@ function processFolder() {
 			print(seiesColors[k]);
 			print(saturations[k]);
 		}
+
+
+		//dualChannelSeparator = "\\s";
+		//getIlluminationSettings(channels, dualChannelSeparator);
+
 		channelColorIndexes = computeColorIndexes(channels, seiesColors);
-		for (k=0; k<channels.length; k++) {
+		if (dbg) for (k=0; k<channels.length; k++) {
 			print("channelColorIndexes["+k+"] = "+channelColorIndexes[k]);
 		}
 		channelColorIndexes = ensureColorIndexesAreDifferent(
 					channelColorIndexes);
-		print("channelColorIndexes.length = "+channelColorIndexes.length);
-		print("Channels to do:");
-		for (k=0; k<channels.length; k++) {
+		if (dbg)
+			print("channelColorIndexes.length = "+
+				channelColorIndexes.length);
+		if (dbg) print("Channels to do:");
+		if (dbg) for (k=0; k<channels.length; k++) {
 			print("channels["+k+"] = "+channels[k]);
 			print("channelColorIndexes["+k+"] = "+channelColorIndexes[k]);
 		}
-		print("seiesColors.length = "+seiesColors.length);
+		if (dbg) print("seiesColors.length = "+seiesColors.length);
 		print("Channel colors:");
 		for (k=0; k<channels.length; k++) {
 //			print(usedChannels[k] + " : "+
@@ -2660,7 +2866,7 @@ function processFolder() {
 		for (k=0; k<channels.length; k++) {
 		//for (k=0; k<channelsToDo.length; k++) {
 			compositeStrs[k]=compositeChannels[channelColorIndexes[k]];
-			print("compositeStrs["+k+"] = "+compositeStrs[k]);
+			if (dbg) print("compositeStrs["+k+"] = "+compositeStrs[k]);
 		}
 		//to be merged, channels must be reordered by increasing c numbers
 		reorderedChannels = reorderChannels(channels, compositeStrs);
@@ -2669,8 +2875,8 @@ function processFolder() {
 		}
 		//extensions = getExtensions(list, seriesNames[i]);
 		extensions = getExtensions(fnames, seriesNames[i]);
-		print("extensions:");
-		for (c=0; c<extensions.length; c++)
+		if (dbg) print("extensions:");
+		if (dbg) for (c=0; c<extensions.length; c++)
 			print(extensions[c]);
 		//ismultiposition = isMultiPosition(list, seriesNames[i]);
 		ismultiposition = isMultiPosition(fnames, seriesNames[i]);
@@ -2706,7 +2912,6 @@ function processFolder() {
 		//type="16-bit"; 
 //		nchannels=1; depth=1; nframes=1;
 //		type="8-bit"; width=1; height=1; nchannels=1; depth=1; nframes=1;
-//		firstTime = true;//demande a chaque serie ou un fichier est introuvable
 		doZprojs = doZprojForChannelSequences[channelGroupIndex];
 		projTypes = toArray(
 					projTypesForChannelSequences[channelGroupIndex], ",");
@@ -2718,9 +2923,9 @@ function processFolder() {
 		}
 		//print("positionNumbers["+i+"] = "+positionNumbers[i]);
 		positionIndex2 = 0;
-		print("\npositionIndex3 = "+positionIndex3);
+		if (dbg) print("\npositionIndex3 = "+positionIndex3);
 		for (j=positionIndex3; j<positionIndex3+positionNumbers[i]; j++) {
-			print("userPositionsSeriesBySeries["+j+"] = "+
+			if (dbg) print("userPositionsSeriesBySeries["+j+"] = "+
 					userPositionsSeriesBySeries[j]);
 			positionIndex2++;
 			if (!positionExists[j] || userPositionsSeriesBySeries[j]==0) {
@@ -2745,7 +2950,8 @@ function processFolder() {
 				}
 				else
 					pp++;
-				print("Processing position "+userPositionsSeriesBySeries[j]);
+				print("Processing position "+
+						userPositionsSeriesBySeries[j]);
 				//print("Processing position "+p);
 				//print("pp = "+pp);
 			}
@@ -2770,14 +2976,6 @@ function processFolder() {
 				imgIDs = newArray(nChannels);
 				imgTitles = newArray(nChannels);
 				maxDepth = 1;
-/*
-				cc = 0;
-				for (c=0; c<channelsToDo.length; c++) {
-					if (!doChannels[c]) {
-						continue;
-					}
-				cc++;
-*/
 				for (c=0; c<nChannels; c++) {//a
 					//if (nChannels>1) {
 						//str2 = reorderedChannels[c];//permute les canaux
@@ -2794,40 +2992,32 @@ function processFolder() {
 							continue;
 						}
 					//}
+					if (extensions[c]==0) extensions[c]="";
 					fn = str1+str2+str3+str4+extensions[c];
-					//print("fn = "+fn);
+					if (dbg) print("str1 = "+str1);
+					if (dbg) print("str2 = "+str2);
+					if (dbg) print("str3 = "+str3);
+					if (dbg) print("str4 = "+str4);
+					if (dbg) print("extensions[c] = "+extensions[c]);
+					if (dbg) print("fn = "+fn);
 					path = dir1+fn;
-					print(""+fn);
+					if (dbg) print(""+fn);
+					doResize = false;
 					if (!File.exists(path)) {
-//					if (!File.exists(path) && width>1) {
 						error = "Cannot find file\n"+dir1+"\n"+fn;
 						print(error);
-/*
-						//desactive car mieux vaut continuer quoi q'il arrive
-						if (firstTime) {
-							if (!getBoolean(error+"\nContinue?")) {
-								print("Interrupted by user because:");
-								print(error);
-								finish();
-								exit();
-							}
-						}
-*/
 						firstTime = false;
-//						if(nImages>0) run("Close All");
-//						continue;
-						//newImage("", type, width, height,
-						//		activeChannels, depth, nframes);
 						print("Creating black image to replace missing one");
 						width = maxImageWidhs[i];
 						height = maxImageHeights[i];
 				//		width = imageWidhs[i];
 				//		height = imageHeights[i];
 						print("width = "+width+"     height = "+height);
-						newImage("", type, width, height,
-								nchannels, depth, nframes);//channelsToDo.length
 						//newImage("", type, width, height,
-						//		channelsToDo.length, depth, nframes);
+						//		nchannels, depth, nframes);
+						//channelsToDo.length
+						newImage("", type, width, height,
+								channelsToDo.length, depth, nFrames);
 						fontSize = 12;
 						setFont("SanSerif", fontSize, "Bold");
 						texts = newArray(5);
@@ -2892,18 +3082,20 @@ function processFolder() {
 						maxWidth = maxImageWidhs[i];
 						maxHeight = maxImageHeights[i];
 						doResize = false;
-						if (currentWidth!=maxWidth || currentHeight!=maxHeight) {
+						if (currentWidth!=maxWidth ||
+								currentHeight!=maxHeight) {
 							doResize = true;
-							print("currentWidth = "+currentWidth);
-							print("currentHeight = "+currentHeight);
-							print("currentDepth = "+currentDepth);
-							print("maxWidth = "+maxWidth);
-							print("maxHeight = "+maxHeight);
+							if (dbg) print("currentWidth = "+currentWidth);
+							if (dbg) print("currentHeight = "+currentHeight);
+							if (dbg) print("currentDepth = "+currentDepth);
+							if (dbg) print("maxWidth = "+maxWidth);
+							if (dbg) print("maxHeight = "+maxHeight);
 							print("Resizing image");
 /*May not work in some cases because of a bug in ij.plugin.Resizer,
 debuged by Marcel Boeglin 2019/05/07 (mail to Wayne Rasband)*/
-							run("Size...", "width="+maxWidth+" height="+maxHeight
-							+" depth="+nSlices+" average interpolation=None");
+							run("Size...", "width="+maxWidth+" height="+
+								maxHeight+" depth="+nSlices+
+								" average interpolation=None");
 						}
 					}
 					if (nImages==0) break;
@@ -3039,13 +3231,14 @@ debuged by Marcel Boeglin 2019/05/07 (mail to Wayne Rasband)*/
 				if (nimg>1) {
 					//! binning may be different for each channel
 					IJ.redirectErrorMessages();
+					//could fail until 43e (BUG in getSeriesFilenames(filenames))
 					run("Merge Channels...", channelsStr+" create");
 				}
 				else {
-					//print("c = "+c);
-					//print("cc = "+cc);
+					print("c = "+c);
+					print("cc = "+cc);
 					//mettre la couleur du canal
-					//run(colors[channelColorIndexes[cc]]);
+					//run(colors[channelColorIndexes[cc]]);//index out of range
 					//marche pas ou defait + loin
 				}
 				rename("t"+t);
@@ -3125,8 +3318,6 @@ debuged by Marcel Boeglin 2019/05/07 (mail to Wayne Rasband)*/
 			}
 			if (istimeseries && pp==1) {
 				if (foundAcquisitionTime) {
-					//dt = computeTimelapseDuration_OLD(acquisitionDays,
-					//								acquisitionTimes);
 					dt =  computeTimelapseDuration(acquisitionYears, 
 												acquisitionMonths, 
 												acquisitionDays,
@@ -3181,6 +3372,7 @@ debuged by Marcel Boeglin 2019/05/07 (mail to Wayne Rasband)*/
 				//getLUT(illumSetting) finds LUT if wavelength not in filename
 				lutName = getLUT(illumSetting);
 				run(lutName);
+				if (channelsToDo[0] == "Undefined_Channel") run("Grays");
 			}
 			setMetadata("Info", info);
 			outname = str1+str3;
