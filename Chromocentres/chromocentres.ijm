@@ -191,8 +191,8 @@ function segmentationChromocentre(imageIdentity) {	// image id
 	for (indexROI = 0; indexROI <numberROI ; indexROI++) {
 		selectImage(imageIdentity);
 		roiManager("select", indexROI);
-		run("Duplicate...", "duplicate");
-		duplicateID=getImageID();
+		//run("Duplicate...", "duplicate");
+		run("Duplicate...", "title=nucleus duplicate");
 		run("Clear Outside", "stack");
 		run("Select None");
 		// START SEGMENTATION CHROMOCENTRES
@@ -213,12 +213,14 @@ function analyseObjects3D(index){
 	//run("Close");
 
 	// Surface map
-	selectWindow("Surface map of "+newImageTitle+"-White Top Hat-1");
+	//selectWindow("Surface map of "+newImageTitle+"-White Top Hat-1"); bug 06 06 2019 on new Data from Ioanna
+	selectWindow("Surface map of nucleus");
 	saveAs("tiff", dir1+File.separator+newImageTitle+File.separator+newImageTitle+"_nucleus_ROI_"+indexROI+"_surface_map.tiff");
 	run("Close");
 		
 	// Objects Map
-	selectWindow("Objects map of "+newImageTitle+"-White Top Hat-1");
+	//selectWindow("Objects map of "+newImageTitle+"-White Top Hat-1"); bug 06 06 2019 on new Data from Ioanna
+	selectWindow("Objects map of nucleus");
 	saveAs("tiff", dir1+File.separator+newImageTitle+File.separator+newImageTitle+"_nucleus_ROI_"+indexROI+"_objects_map.tiff");
 	run("Close");
 }
