@@ -1,11 +1,10 @@
-/** 
+/**
  * macro "MetamorphFilesFolderToHyperstacks_"
- * Author : Marcel Boeglin, July 2018 - May 2019
+ * Author : Marcel Boeglin, July 2018 - July 2019
  * e-mail: boeglin@igbmc.fr
  * 
- * ¤ Opens Metamorph multi-position time-series z-stacks of up to 7
- *   channels from input folder and saves them as hyperstacks to
- *   output folder.
+ * ¤ Opens Metamorph multi-position time-series z-stacks of up to 7 channels
+ *   from input folder and saves them as hyperstacks to output folder.
  *
  * ¤ Only TIFF and STK files are processed.
  *
@@ -14,32 +13,31 @@
  * ¤ Series having same channel sequence are grouped in channel groups.
  *   Series of a given channel group are processed using same parameters.
  *
- * ¤ Channel colors are determined automatically from filennames using
- *   red, green, blue, cyan, magenta, yellow and gray determinants but 
- *   can be changed by the user.
+ * ¤ Channel colors are determined automatically from filennames using red,
+ *   green, blue, cyan, magenta, yellow and gray determinants but can be
+ *   changed by the user.
  *   For instance, the red determinants set is: {"543", "555", "561",
  *   "594", "CY3", "Y3", "DsRed", "mCherry", "N21", "RFP", "TX2"}.
- *   Channels containing a red, a green, a blue or a gray determinant in
- *   their names are assumed to be respectively red, green, blue or gray.
+ *   Channels containing a red, green, blue or gray determinant in their names
+ *   are assumed to be respectively red, green, blue or gray.
  *   In future versions, it's planned  to get channel colors from metadata
  *   in case Metamorph is configured to not add the illumination settings
  *   to the filenames (which in that case contain just _w1, _w2, ..., _wn).
- *	 If none of the color determinants sets works with one of our
- *	 illumination setting names, just add the missing determinant to the 
- *	 appropriate set. 
+ *	 If none of the color determinants sets works with one of our illumination
+ *	 setting names, just add the missing determinant to the appropriate set.
  *
  * ¤ Dual camera channels handling:
- *   Assumes channels are saved in separate images. Like in single
- *   camera acquisitions, colors are derived from filenames. 
+ *   Assumes channels are saved in separate images. Like in single camera
+ *   acquisitions, colors are derived from filenames. 
  *   Dual camera filenames are assumed to be of the type:
  *   seriesName_w1Lambda1 Lambda2...
  *   seriesName_w2Lambda1 Lambda2...
- *   One could expect that w1 corresponds to lambda1 and w2 to lambda2, 
- *   but w1 may correspond to lambda2 and w2 to lambda1, depending on 
- *   the configuration of Metamorph.
+ *   One could expect that w1 corresponds to lambda1 and w2 to lambda2, but
+ *   w1 may correspond to lambda2 and w2 to lambda1, depending on the
+ *   configuration of Metamorph.
  *   The dual channel separator (a space in the example) may be another
- *   character, for instance "-", depending on how dual camera 
- *   illuminations have been named in Metamorph.
+ *   character, for instance "-", depending on how dual camera illuminations
+ *   have been named in Metamorph.
  *   Dual channel order and separator are managed by the macro but are
  *   assumed to be the same for all series in a given folder.
  *   If the dual channel colors attribution fails, arbitrary (probably 
@@ -49,22 +47,21 @@
  * ¤ Output images are X, Y, Z and T calibrated if calibration data are
  *   available.
  *
- * ¤ Does optional maximum z-projection of input files and color
- *   balance of output files.
+ * ¤ Does optional maximum z-projection of input files and color balance of
+ *   output files.
  *
  * ¤ In case of heterogeneous z-dimensions between channels and 
- *   'Do z-projection' is unchecked, single-section channels
- *   are transformed into z-stacks having same depth as channels
- *   acquired as z-stacks by duplicating the single-section.
+ *   'Do z-projection' is unchecked, single-section channels are transformed
+ *   into z-stacks having same depth as channels acquired as z-stacks by
+ *   duplicating the single-section.
  *
- * ¤ Series handling dialog is not displayed if larger than screen 
- *   (happens if the folder contains more series than can be added
- *   as checkboxes in a dialog). In this case all series are assumed 
- *   to be processed.
- * 
- * 
+ * ¤ Series handling dialog is not displayed if larger than screen (happens
+ *   if the folder contains more series than can be added as checkboxes in
+ *   a dialog). In this case all series are assumed to be processed.
+ *
+ *
  * Known problems:
- * 
+ *
  * ¤ Temporal calibration fails if timelapse crosses year.
  *   --o-> frame interval = 0 or is false
  *
@@ -72,21 +69,21 @@
  *   folder contains a large number of series having different channel
  *   sequences.
  *
- * ¤ Developped under Win7, has not been tested on Linux and Mac-OS
- *   
- * 
- * DEPENDENCY: Z calibration needs tiff_tags plugin to be installed:
- * See:
- * https://imagej.nih.gov/ij/plugins/tiff-tags.html
- * 
+ * ¤ Developed under Win7, has not been tested on Linux and Mac-OS.
+ *
+ *
+ * DEPENDENCY:
+ * Z calibration needs Joachim Walter's tiff_tags plugin. It can be
+ * downloaded it here: https://imagej.nih.gov/ij/plugins/tiff-tags.html
+ *
 */
 
 var dBug = false;
 var macroName = "MetamorphFilesFolderToHyperstacks";
-var version = "43e";
+var version = "43m";
 var author = "Author: Marcel Boeglin 2018-2019";
 var msg = macroName+"\nVersion: "+version+"\n"+author;
-var info = "Created by "+macroName+"\n"+author;
+var info = "Created by "+macroName+"\n"+author+"\nE-mail: boeglin@igbmc.fr";
 var features = "Opens  input folder  image series consisting  in up"+
 	"\nto 7 channels  multi-position  time-series  z-stacks"+
 	"\nnamed according to Metamorph dimensions order"+
@@ -96,12 +93,12 @@ var features = "Opens  input folder  image series consisting  in up"+
 var compositeColors = newArray("red", "green", "blue", "gray",
 	"cyan", "magenta", "yellow");
 var compositeChannels = newArray("c1", "c2", "c3", "c4", "c5", "c6", "c7");
-var projectionTypes = newArray("Average Intensity",
-								"Max Intensity",
-								"Min Intensity",
-								"Median",
-								"Sum Slices");
-
+var projectionTypes = newArray(
+						"Average Intensity",
+						"Max Intensity",
+						"Min Intensity",
+						"Median",
+						"Sum Slices");
 var colors = newArray("Red", "Green", "Blue", "Grays",
 			"Cyan", "Magenta", "Yellow");
 
@@ -126,18 +123,30 @@ var magentaDeterminants = newArray("CY5", "Y5");
 var yellowDeterminants = newArray("YFP");
 
 
-/** dualCameraSettings
- * Enter in this array all dual channel settings you may have to process 
- */
-var dualCameraSettings = newArray("_w1CSU491 561", "_w1CSU488-561");
-//equivalent to " "
-var dualChannelSeparator = "(\\s)";//Nikon spinning disk at IGBMC;
-//var isDualChannelSingleImage = false;
+/** dualCameraSettingsInMetadata
+ * Enter in this array all dual channel settings you may have to process,
+ * as they appear in image metadata (may != those in imagenames!) */
+var dualCameraSettingsInMetadata = newArray(
+		"_w1CSU491 561",//Nikon spinning disk IGBMC
+		"_w1CSU491 635",//Nikon spinning disk IGBMC
+		"_w1CSU488_561");//Leica spinning disk IGBMC
+var dualChannelSeparatorInMetadata = "(\\s)";//Nikon spinning disk IGBMC;
+//for Leica spinning disk it's "_"
 
+/** dualCameraSettingsInImagenames
+ * Enter in this array all dual channel settings you may have to process,
+ * as they appear in imagenames */
+var dualCameraSettingsInImagenames = newArray("_w1CSU491 561", "_w1CSU488-561");
+//equivalent to " "
+var dualChannelSeparator = "(\\s)";//Nikon spinning disk IGBMC;equivalent to " "
 //For Leica spinning disk at IGBMC, dualChannelSeparator = "-"
+
 var firstDualChannelIllumSetting_is_w1 = true;//A REMPLACER PAR INFRA
-//if true, w1 corresponds to 2nd illum setting
+/* invertedDualChannelIllumSettingsOrder
+ * if true, w1 corresponds to 2nd illum setting */
 var invertedDualChannelIllumSettingsOrder = false;
+
+//var isDualChannelSingleImage = false;
 
 var XYZUnitChoices = newArray("pixel", "nm", "micron", "um", "µm", 
 								"mm", "cm", "m");
@@ -159,28 +168,50 @@ var ignoreSingleTimepointChannels = true;
 //var autoscale = true;
 
 /** % saturated pixels for channels in composite output images*/
-var compositeChannelSaturations =  newArray(0.05,		//red
-											0.05,		//green
-											0.05,		//blue
-											0.0,		//gray
-											0.01,		//cyan
-											0.01,		//magenta
-											0.01);		//yellow
+var compositeChannelSaturations = newArray(
+									0.05,	//red
+									0.05,	//green
+									0.05,	//blue
+									0.0,	//gray
+									0.01,	//cyan
+									0.01,	//magenta
+									0.01);	//yellow
 
 var doSeries;//array of dim nSeries
 var letMeChooseSeries = true;
 var noChannelDependentBinning = true;
 var doZproj = true;
 var doZprojsByDefault = true;
+
+var displayDataReductionDialog = false;
+
+//since 43h
+var resizeAtImport = false;
+var resizeFactor = 0.5;
+
+var cropOptions = newArray("None", "From macro-command", "From Roi Manager");
+var cropOption = "None";
+var cropAtImport = false;
+var roiX, roiY, roiW, roiH;
+var rectangleFromMacroCommand = false;
+
+var firstSlice = 1, lastSlice = -1;
+var doRangeArroundMedianSlice = false;
+var rangeArroundMedianSlice = 50; // % of stack-size
+
+var firstTimePoint=1, lastTimePoint=-1;//-1 means until nTimePoints
+var doRangeFrom_t1 = false;
+var rangeFrom_t1 = 50; // % of nTimePoints
+
 var to32Bit = false;
-var firstSlice = -1, lastSlice = -1;
+
 var oneOutputFilePerTimePoint = false;
-var createFolderForEachOutputSeries = false;//palliatif bug Imaris
+var createFolderForEachOutputSeries = false;
 //End of variables to be changed to modify dialog defaults.
 ///////////////////////////////////////////////////////////
 
 
-//Depuis 41j :
+//Since 41j :
 //Variables tableaux 2D pour chaque serie sous forme de chaines de caracteres
 //separees par des virgules. Ex. : 
 //seriesChannelSequences() = newArray(nSeries);
@@ -450,16 +481,23 @@ function isExtensionFilter(fileFilter) {
 }
 
 function execute() {
-	print("\\Clear");
 	//askForCalibrationsAndUnits = isKeyDown("alt");
 	//print("askForCalibrationsAndUnits = "+askForCalibrationsAndUnits);
 	//setKeyDown("none");
 	getDirs();
-	print(msg+"\n ");
+	print("\\Clear");
+	print(msg);
+	print("E-mail: boeglin@igbmc.fr");
+	print("");
 	print(features);
+	print("");
 	startTime = getTime();
 	dualCameraDialog();
+	dualCameraDialog2();
 	fileFilterAndCalibrationParamsDialog();
+
+	if (displayDataReductionDialog) dataReductionDialog();
+
 	tiff_tags_plugin_installed = findPlugin("tiff_tags.jar");
 	if (tiff_tags_plugin_installed)
 		print("tiff_tags.jar is installed");
@@ -621,14 +659,14 @@ function getSeriesCompleteness() {//NOT USED
 	}
 }
 
-/** Finds image types, maxWidths and maxHeights of series to be processed */
+/** Finds image types, maxWidths, maxHeights and maxDepths of each series */
 function getImageTypes_MaxWidhs_MaxHeights() {
 	dbg = false;
 	if (dbg) print("\nnSeries = "+nSeries);
 	imageTypes = newArray(nSeries);
 	maxImageWidhs = newArray(nSeries);
 	maxImageHeights = newArray(nSeries);
-	maxImageDepths = newArray(nSeries);//Currently not used nor implemented
+	maxImageDepths = newArray(nSeries);
 	for (i=0; i<nSeries; i++) {
 	//for (i=0; i<seriesFilenamesStr.length; i++) {
 		//print("");
@@ -636,7 +674,7 @@ function getImageTypes_MaxWidhs_MaxHeights() {
 		if (dbg) print("Series "+i);
 		if (dbg) print("fnames = "+fnames);
 		fnamesArray = split(fnames, "(,)");
-		maxW = 0; maxH = 0;
+		maxW = 0; maxH = 0; maxD = 1;
 		setBatchMode(true);
 		bitdepth = 16;
 		seriesName = seriesNames[i];
@@ -654,9 +692,12 @@ function getImageTypes_MaxWidhs_MaxHeights() {
 				if (dbg) print("fname = "+fname);
 				if (!File.exists(path)) continue;
 				open(path, 1);
+				id = getImageID();
+				getImageMetadata(path, id, tiff_tags_plugin_installed);
 				bitdepth = bitDepth();
 				maxW = getWidth();
 				maxH = getHeight();
+				maxD = numberOfPlanes;
 				close();
 				break;
 			}
@@ -675,17 +716,22 @@ function getImageTypes_MaxWidhs_MaxHeights() {
 			if (width>maxW) maxW = width;
 			height = getHeight();
 			if (height>maxH) maxH = height;
+			id = getImageID();
+			getImageMetadata(path, id, tiff_tags_plugin_installed);
+			if (numberOfPlanes>maxD) maxD = numberOfPlanes;
 			close();
 			if (noChannelDependentBinning) break;
 		}
 		if (bitdepth==8) imageTypes[i] = "8-bit";
 		else if (bitdepth==16) imageTypes[i] = "16-bit";
 		else if (bitdepth==24) imageTypes[i] = "RGB";
-		//print("maxW = "+maxW+"    maxH = "+maxH);
+		print("maxW = "+maxW+"    maxH = "+maxH+"    maxD = "+maxD);
 		maxImageWidhs[i] = maxW;
 		maxImageHeights[i] = maxH;
+		maxImageDepths[i] = maxD;
 		print("maxImageWidhs["+i+"] = "+maxImageWidhs[i]);
 		print("maxImageHeights["+i+"] = "+maxImageHeights[i]);
+		print("maxImageDepths["+i+"] = "+maxImageDepths[i]);
 		setBatchMode(false);
 	}
 }
@@ -724,53 +770,65 @@ function dualCameraDialog() {
 	machine = Dialog.getChoice();
 }
 
-function fileFilterAndCalibrationParamsDialog() {
+function dualCameraDialog2() {
+	Dialog.create(macroName);
 	firstDualChannelIllumSetting_is_w1 = true;
 	if (machine=="Spinning Disk / Leica - IGBMC")
 		firstDualChannelIllumSetting_is_w1 = false;
 	dualChannelSeparator = "-";
 	if (machine=="Spinning Disk / Nikon - IGBMC")
 		dualChannelSeparator = "(\\s)";
-	Dialog.create(macroName);
 	Dialog.addMessage("Dual Camera Series:");
 	Dialog.addMessage("Example of wavelengths: _w1CSU491 561, _w2CSU491 561");
 	Dialog.addCheckbox("First Illumination Setting is w1",
 			firstDualChannelIllumSetting_is_w1);
-	Dialog.addString("Illumination Settings Separator (parentheses for Regex)",
-			dualChannelSeparator);
-	Dialog.addMessage("All Series:");
+	Dialog.addString("Illumination Settings Separator", dualChannelSeparator);
+	Dialog.addToSameRow();
+	Dialog.addMessage("parentheses = Regex");
+	Dialog.show();
+	firstDualChannelIllumSetting_is_w1 = Dialog.getCheckbox();
+	dualChannelSeparator = Dialog.getString();
+}
+
+
+
+function fileFilterAndCalibrationParamsDialog() {
+	Dialog.create(macroName);
 	Dialog.addString("Process Filenames containing", fileFilter);
 	Dialog.addString("Exclude Filenames containing", excludingFilter);
 	Dialog.addCheckbox("No series have channel-dependent binning",
 			noChannelDependentBinning);
 	Dialog.addCheckbox("Display series choice dialog", letMeChooseSeries);
-	Dialog.addMessage("If no length calibration found,"+
-			" use this for all series:");
+	Dialog.addMessage("If no xy-z calibration found,"+
+			" use following for all series:");
 	Dialog.addNumber("Pixel size", 1);
 	Dialog.addNumber("Z step", 0);
 	Dialog.addChoice("Unit of length", XYZUnitChoices, XYZUnitChoices[0]);
-	
+	Dialog.addMessage("");
+	Dialog.addCheckbox("z-projection BY DEFAULT FOR ALL SERIES",
+			doZprojsByDefault);
+	Dialog.addCheckbox("Display Data Reduction Dialog",
+			displayDataReductionDialog);
+
 //	if (atLeastOneTimeSeries) {
-		//Dialog.addMessage("Time series:");
-		Dialog.addMessage("If no time calibration found,"+
-				" use this for all series:");
+		Dialog.addMessage("");
+		Dialog.addMessage("Time series:");
+		Dialog.addMessage("If no frame interval or time unit found,"+
+				" use following for all series:");
 		Dialog.addNumber("Frame interval", 0);
 		Dialog.addChoice("Time unit", TUnitChoices, TUnitChoices[1]);
 //		Dialog.addCheckbox("Create subfolders to workaround Imaris bug",
 //				createFolderForEachOutputSeries);
 		Dialog.addCheckbox("Create an output file for each time point",
 				oneOutputFilePerTimePoint);
-		Dialog.addCheckbox("Timelapse: ignore single timepoint channels",
+		Dialog.addCheckbox("Ignore single timepoint channels",
 				ignoreSingleTimepointChannels);
 //	}
-	Dialog.addCheckbox("Set 'Do z-projections' as default for all series",
-				doZprojsByDefault);
+
 	Dialog.addMessage(author);
+	Dialog.addString("E-mail","boeglin@igbmc.fr");
 
 	Dialog.show();
-
-	firstDualChannelIllumSetting_is_w1 = Dialog.getCheckbox();
-	dualChannelSeparator = Dialog.getString();
 	fileFilter = Dialog.getString();
 	excludingFilter = Dialog.getString();
 	noChannelDependentBinning = Dialog.getCheckbox();
@@ -778,6 +836,9 @@ function fileFilterAndCalibrationParamsDialog() {
 	userPixelSize = Dialog.getNumber();
 	userVoxelDepth = Dialog.getNumber();
 	userLengthUnit = Dialog.getChoice();
+	doZprojsByDefault = Dialog.getCheckbox();
+	displayDataReductionDialog = Dialog.getCheckbox();
+
 //	if (atLeastOneTimeSeries) {
 		userFrameInterval = Dialog.getNumber();
 		userTUnit = Dialog.getChoice();
@@ -785,7 +846,7 @@ function fileFilterAndCalibrationParamsDialog() {
 		oneOutputFilePerTimePoint = Dialog.getCheckbox();
 		ignoreSingleTimepointChannels = Dialog.getCheckbox();
 //	}
-	doZprojsByDefault = Dialog.getCheckbox();
+
 	print("userFrameInterval = "+userFrameInterval);
 	print("userTUnit = "+userTUnit);
 	/*
@@ -793,6 +854,113 @@ function fileFilterAndCalibrationParamsDialog() {
 	*/
 	print("oneOutputFilePerTimePoint = "+oneOutputFilePerTimePoint);
 	print("ignoreSingleTimepointChannels = "+ignoreSingleTimepointChannels);
+}
+
+function dataReductionDialog() {
+	cropAtImport = false;
+	macroCommand = "";
+	Dialog.create(macroName);
+	Dialog.addMessage("Data Reduction:");
+	Dialog.addCheckbox("Resize at import", resizeAtImport);
+	Dialog.addNumber("Resize factor", resizeFactor);
+
+	Dialog.addMessage("");
+	Dialog.addChoice("Crop-roi", cropOptions);
+	Dialog.addMessage("From Roi Manager: \nyou should have added at least one "+
+			"roi to the manager\nand selected the one to be used. "+
+			"\nRoi used in special cases: "+
+			"\n- no roi selected: first in the list. "+
+			"\n- several rois selected: first selected one."+
+			"\n- the roi is not a rectangle: its bounding rectangle."+
+			"");
+	Dialog.addMessage("From macro-command:\n"+
+			"you can paste the command to the text field below.\n"+
+			"The command should look like:\n"+
+			"makeRectangle(x, y, width, height)");
+	Dialog.addString("Macro command", "");
+
+	//Reintroduced in 43g
+	Dialog.addMessage("");
+	Dialog.addMessage("Z series:");
+	Dialog.addNumber("firstSlice", firstSlice, 0, 4,
+			"-1 means nSlices whatever stack-size");
+	Dialog.addNumber("lastSlice", lastSlice, 0, 4,
+			"-1 means nSlices whatever stack-size");
+//since 43i
+	Dialog.addCheckbox("Process range around median slice",
+			doRangeArroundMedianSlice);
+	Dialog.addNumber("Range", rangeArroundMedianSlice, 0, 4,
+			"% of stack-size; < 0 to reverse stack");
+
+
+	Dialog.addNumber("firstTimePoint", firstTimePoint, 0, 4,
+			"");
+	Dialog.addNumber("lastTimePoint", lastTimePoint, 0, 4,
+			"-1 means last time point whatever timelapse duration");
+	Dialog.addCheckbox("Process range from t1", doRangeFrom_t1);
+	Dialog.addNumber("Range", rangeFrom_t1, 0, 4,
+			"% of timelapse duration");
+
+	Dialog.show();
+
+	resizeAtImport = Dialog.getCheckbox();
+	resizeFactor = Dialog.getNumber();
+	if (resizeFactor==0) resizeFactor = 1;
+
+	cropOption = Dialog.getChoice();
+	print("cropOption = "+cropOption);
+	macroCommand = Dialog.getString();
+	print("macroCommand = "+macroCommand);
+	if (cropOption=="From macro-command")
+		cropAtImport = getRoi(macroCommand);
+	else if (cropOption=="From Roi Manager")
+		cropAtImport = getRoiFromManager();
+
+	//Reintroduced in 43g
+	firstSlice = Dialog.getNumber();
+	lastSlice = Dialog.getNumber();
+	doRangeArroundMedianSlice = Dialog.getCheckbox();
+	rangeArroundMedianSlice = Dialog.getNumber();// % of stack-size
+
+	firstTimePoint = Dialog.getNumber();
+	lastTimePoint = Dialog.getNumber();
+	doRangeFrom_t1 = Dialog.getCheckbox();
+	rangeFrom_t1 = Dialog.getNumber();
+
+/*
+var firstTimePoint=1, lastTimePoint=-1;//-1 means until nTimePoints
+var doRangeFromT1 = false;
+var rangeFrom_t1 = 50; // % of nTimePoints
+ */
+}
+
+function getRoiFromManager() {
+	if (roiManager("count")<1) return false;
+	index = roiManager("index");
+	if (index==-1) index = 0;
+	newImage("Untitled", "8-bit black", 2048, 2048, 1);
+	roiManager("select", index);
+	getSelectionBounds(roiX, roiY, roiW, roiH);
+	close();
+	return true;
+}
+
+function getRoi(macroCmd) {
+	if (!startsWith(macroCommand, "makeRectangle(")) return false;
+	rectangleFromMacroCommand = true;
+	str = substring(macroCommand, indexOf(macroCommand, "(")+1);
+	print("str = "+str);
+	if (indexOf(str, ")")>0)
+		str = substring(str, 0, indexOf(str, ")"));
+	print("str = "+str);
+	XYWH = split(str, ",");
+	for (i=0; i<XYWH.length; i++) print("XYWH["+i+"] = "+ XYWH[i]);
+	if (XYWH.length != 4) return false;
+	roiX = XYWH[0];
+	roiY = XYWH[1];
+	roiW = XYWH[2];
+	roiH = XYWH[3];
+	return true;
 }
 
 /**
@@ -1263,6 +1431,16 @@ function printParams() {//TODO: add missing params
 	print("userFrameInterval = "+userFrameInterval);
 	print("userTUnit = "+userTUnit);
 
+	print("cropAtImport = "+cropAtImport);
+	print("rectangleFromMacroCommand = "+rectangleFromMacroCommand);
+	print("roiX = "+roiX);
+	print("roiY = "+roiY);
+	print("roiW = "+roiW);
+	print("roiH = "+roiH);
+
+	print("resizeAtImport = "+resizeAtImport);
+	print("resizeFactor = "+resizeFactor);
+
 	print("firstSlice = "+firstSlice);
 	print("lastSlice = "+lastSlice);
 
@@ -1666,7 +1844,8 @@ function isMultiChannel(filenames, seriesName) {
  *   presentes dans dir1 et dont les elements sont les noms des series
  *   faites avec une sequence donnee separes par des virgules;
  *   pourrait renvoyer les numeros des series (0 a nSeries) a la place
- * - Assigne les elements du tableau seriesChannelGroups (variable generale) */
+ * - Assigne les elements du tableau seriesChannelGroups (variable generale)
+ */
 function groupSeriesHavingSameChannelSequence() {//fonctionne
 	dbg = false;
 	nSeq = channelSequences.length;
@@ -1729,7 +1908,7 @@ function getSeriesChannelSequences() {//semble fonctionner
 	seriesChannels = newArray(nSeries);
 	for (i=0; i<nSeries; i++) {
 		if (dbg) print("");
-		if (dbg) print("seriesFilenamesStr["+i+"] = "+seriesFilenamesStr[i]);//ok
+		if (dbg) print("seriesFilenamesStr["+i+"] = "+seriesFilenamesStr[i]);
 		fnames = split(seriesFilenamesStr[i], "(,)");
 		chn = newArray(fnames.length);
 		if (dbg) print("fnames.length = "+fnames.length);
@@ -1807,7 +1986,7 @@ function getSeriesChannelSequences() {//semble fonctionner
 }
 
 function seriesNameLessFilename(filename, seriesName) {
-//print("seriesNameLessFilename(filename,seriesName): seriesName = "+seriesName);
+//print("seriesNameLessFilename(filename,seriesName): seriesName="+seriesName);
 	index = indexOf(filename, seriesName);
 	if (lengthOf(seriesName)<1 || index<0) return filename;
 	s = substring(filename, lengthOf(seriesName));
@@ -1982,8 +2161,8 @@ function getFrameNumbers(filenames, seriesIndex) {
 			timeDelimiter = ".";
 			nFiles = getFilesNumber(seriesName);
 			if (dbg)
-				print("getFramesNumbers(filenames, seriesName) nFiles in series = "
-					+nFiles);
+				print("getFramesNumbers(filenames, seriesName)"+
+						" nFiles in series = "+nFiles);
 			j = 0;
 			nframes = 0;
 			if (dbg) print("filenames:");
@@ -2048,7 +2227,8 @@ function isDualCameraChannel(chns) {//Not used
  */
 function hasDualChannelSet(chns) {
 	if (chns.length<2) return false;
-	//dual camera channels must have same illumination settings and be consecutive
+	//dual camera channels must have same illumination settings
+	//and be consecutive
 	for (i=0; i<chns.length-1; i++) {
 		str1 = chns[i]; str2 = chns[i+1]; 
 		if (substring(str2, 3,
@@ -2059,7 +2239,12 @@ function hasDualChannelSet(chns) {
 	return false;
 }
 
-//ATTENTION : chercher dans les metadata
+//ATTENTION : il faut chercher dans les metadata car on peut acquerir des images
+//en dual camera sans cocher la case Multichannel, ce qui fait que les noms ne 
+//contiennent pas _w1, _w2 etc.
+//Par ailleurs, Metamorph peut etre configure de sorte que les noms des images
+//ne coportent pas l'indication de l'illumination setting complet mais seulement
+// _w1, _w2 etc.
 
 /**
  * Returns true if chns contains a dual channel sequence but only one
@@ -2070,9 +2255,10 @@ function hasDualChannelSet(chns) {
 function hasDualChannelSingleImage(chns) {
 //function hasDualChannelSingleImage(seriesName) {
 	for (i=0; i<chns.length-1; i++) {
-		for (j=0; j<dualCameraSettings.length; j++)
-			if (chns[i]==dualCameraSettings[j]) {
-				if (chns.length==1 || chns[i+1]!=dualCameraSettings[j])
+		for (j=0; j<dualCameraSettingsInImagenames.length; j++)
+			if (chns[i]==dualCameraSettingsInImagenames[j]) {
+				if (chns.length==1 ||
+						chns[i+1]!=dualCameraSettingsInImagenames[j])
 					return true;
 		}
 	}
@@ -2498,35 +2684,9 @@ function extractValue(tag, param, searchStartIndex) {
 	return index4;
 }
 
-function getDescriptionTag(path, IFD, imageID, tiff_tags_plugin_installed) {
-	dbg = false;
-	tag = "";
-	tagNum = 270;
-	if (tiff_tags_plugin_installed) {
-		tag = call("TIFF_Tags.getTag", path, tagNum, IFD);
-	}
-	if (indexOf(tag, "ImageJ")>-1 || IFD==1) {
-		//image saved through ImageJ or 1st slice
-		id = getImageID();
-		selectImage(imageID);
-		tag = getImageInfo();
-		selectImage(id);
-	}
-/*
-	else {//Ancien
-		if (IFD==1) {
-			id = getImageID();
-			selectImage(imageID);
-			tag = getImageInfo();
-			selectImage(id);
-		}
-	}
-*/
-	if (dbg) print("\nDescription tag:");
-	if (dbg) print(tag);
-	return tag;
-}
-
+/**
+ * Call this function to get metadata
+ */
 function getImageMetadata(path, imageID, tiff_tags_plugin_installed) {
 	dbg = false;
 	//public static String getTag(String path, int tag, int ifd);
@@ -2563,6 +2723,28 @@ function getImageMetadata(path, imageID, tiff_tags_plugin_installed) {
 	}
 	print("acquisitionTimeStr = "+acquisitionTimeStr);
 	return true;
+}
+
+/**
+ * Called by getImageMetadata()
+ */
+function getDescriptionTag(path, IFD, imageID, tiff_tags_plugin_installed) {
+	dbg = false;
+	tag = "";
+	tagNum = 270;
+	if (tiff_tags_plugin_installed) {
+		tag = call("TIFF_Tags.getTag", path, tagNum, IFD);
+	}
+	if (indexOf(tag, "ImageJ")>-1 || IFD==1) {
+		//image saved through ImageJ or 1st slice
+		id = getImageID();
+		selectImage(imageID);
+		tag = getImageInfo();
+		selectImage(id);
+	}
+	if (dbg) print("\nDescription tag:");
+	if (dbg) print(tag);
+	return tag;
 }
 
 function computeZInterval() {
@@ -2956,8 +3138,22 @@ function processFolder() {
 				//print("pp = "+pp);
 			}
 			nslices = 1;
-			tt = 0;
-			for (t=1; t<=nFrames; t++) {
+			startT = firstTimePoint;
+			stopT = lastTimePoint;
+			if (doRangeFrom_t1) stopT = nFrames * rangeFrom_t1 / 100;
+			if (startT<1) startT = 1;
+			if (stopT>nFrames) stopT = nFrames;
+			if (stopT<startT) stopT = startT;
+			if (stopT==-1) stopT = nFrames;
+			print("stopT = "+stopT);
+			if (startT>stopT) startT = stopT;
+			print("startT = "+startT+"    stopT = "+stopT);
+			timeRange = stopT - startT;
+			print("timeRange = "+timeRange);
+			//tt = 0;//old
+			tt = startT-1;
+			for (t=startT; t<=stopT; t++) {
+			//for (t=1; t<=nFrames; t++) {//old
 				if (istimeseries) {
 					str4 = "_t" + t;
 					if (isTimeFilter(fF)
@@ -2986,7 +3182,7 @@ function processFolder() {
 						if (isWaveFilter(fF) && indexOf(str2, fF)<0) {
 							continue;
 						}
-						if (nFrames>1 && nframesInChannels[c]==1 &&
+						if (timeRange>0 && nframesInChannels[c]==1 &&
 								ignoreSingleTimepointChannels) {
 							nChannels--;
 							continue;
@@ -3010,14 +3206,20 @@ function processFolder() {
 						print("Creating black image to replace missing one");
 						width = maxImageWidhs[i];
 						height = maxImageHeights[i];
+						depth = maxImageDepths[i];
 				//		width = imageWidhs[i];
 				//		height = imageHeights[i];
-						print("width = "+width+"     height = "+height);
+						//print("width = "+width+"     height = "+height);
+						print("width="+width+" height="+height+" depth="+depth);
 						//newImage("", type, width, height,
 						//		nchannels, depth, nframes);
 						//channelsToDo.length
-						newImage("", type, width, height,
-								channelsToDo.length, depth, nFrames);
+						if (doZprojs) depth = 1;
+						newImage("", type+" black", width, height, depth);
+						//newImage("", type, width, height,
+						//		channelsToDo.length, depth, nFrames); //false
+						print("black image: w="+getWidth()+"  h="+getHeight()+
+									"  depth="+nSlices);
 						fontSize = 12;
 						setFont("SanSerif", fontSize, "Bold");
 						texts = newArray(5);
@@ -3049,23 +3251,85 @@ function processFolder() {
 						}
 					}
 					else {
-						if (lastSlice < firstSlice) {
-							lastSlice = firstSlice;
+						if (t==startT && (c==0 || c==1)) {
+						//if (t==firstTimePoint && (c==0 || c==1)) {
+						//if (t==1 && (c==0 || c==1)) {//old
+							print("i="+ i+"  j="+j+"  t="+t+"  c="+c);
+							open(path, 1);
+							tmpID = getImageID();
+							getImageMetadata(path, tmpID,
+									tiff_tags_plugin_installed);
+							close();
+							print("numberOfPlanes = "+numberOfPlanes);
+							if (numberOfPlanes<1) {
+								//numberOfPlanes not found in metadata 
+								open(path);
+								numberOfPlanes = nSlices();
+								close();
+							}
 						}
-						if (firstSlice<1 || lastSlice<1) {
-							IJ.redirectErrorMessages();
-							open(path);
+						print("numberOfPlanes = "+numberOfPlanes);
+						startSlice = 1;
+						stopSlice = numberOfPlanes;
+						if (dbg) print("firstSlice = "+firstSlice);
+						if (dbg) print("lastSlice = "+lastSlice);
+
+						if (doRangeArroundMedianSlice) {
+							startSlice = numberOfPlanes/2 * 
+								(1 - rangeArroundMedianSlice/100);
+							stopSlice = numberOfPlanes/2 *
+								(1 + rangeArroundMedianSlice/100);
+							startSlice = floor(startSlice)-1;
+							stopSlice = floor(stopSlice)-1;
 						}
-//						else if (firstSlice>=1 && lastSlice>=1) {
-//							open(path, firstSlice);
-//						}
 						else {
-							IJ.redirectErrorMessages();
-							open(path, firstSlice);
-							slices = lastSlice - firstSlice + 1;
-							if (slices>1) {
-								for (s=firstSlice+1; s<=lastSlice; s++) {
+							if (firstSlice<=0)
+								startSlice = numberOfPlanes;
+							else
+								startSlice = firstSlice;
+							if (lastSlice<=0)
+								stopSlice = numberOfPlanes;
+							else
+								stopSlice = lastSlice;
+						}
+
+						if (dbg) print("startSlice = "+startSlice);
+						if (dbg) print("stopSlice = "+stopSlice);
+
+						if (startSlice<1)
+							startSlice = 1;
+						if (startSlice>numberOfPlanes)
+							startSlice = numberOfPlanes;
+						if (stopSlice<1)
+							stopSlice = 1;
+						if (stopSlice>numberOfPlanes)
+							stopSlice = numberOfPlanes;
+
+						slices = abs(stopSlice - startSlice) + 1;
+						if (true) print("startSlice = "+startSlice);
+						if (true) print("stopSlice = "+stopSlice);
+						if (true) print("slices = "+slices);
+
+						IJ.redirectErrorMessages();
+						open(path, startSlice);
+						if (slices>1) {
+							if (stopSlice<startSlice) {
+								for (s=startSlice-1; s>=stopSlice; s--) {
 									IJ.redirectErrorMessages();
+									print("s = "+s);
+									open(path, s);
+									run("Select All");
+									run("Copy");
+									if( nImages>0) close();
+									run("Add Slice");
+									run("Paste");
+									run("Select None");
+								}
+							}
+							else {
+								for (s=startSlice+1; s<=stopSlice; s++) {
+									IJ.redirectErrorMessages();
+									print("s = "+s);
 									open(path, s);
 									run("Select All");
 									run("Copy");
@@ -3091,13 +3355,31 @@ function processFolder() {
 							if (dbg) print("maxWidth = "+maxWidth);
 							if (dbg) print("maxHeight = "+maxHeight);
 							print("Resizing image");
-/*May not work in some cases because of a bug in ij.plugin.Resizer,
-debuged by Marcel Boeglin 2019/05/07 (mail to Wayne Rasband)*/
 							run("Size...", "width="+maxWidth+" height="+
 								maxHeight+" depth="+nSlices+
 								" average interpolation=None");
 						}
 					}
+
+					//since 43k
+					print("cropAtImport = "+cropAtImport);
+					if (cropAtImport) {
+						makeRectangle(roiX, roiY, roiW, roiH);
+						run("Crop");
+					}
+
+					//since 43h
+					if (resizeAtImport && resizeFactor!=1) {
+						Stack.getDimensions(w1, h1, nchn, nslices, frames);
+						w2 = w1 * resizeFactor;
+						h2 = h1 * resizeFactor;
+						run("Size...",
+							"width="+w2+
+							" height="+h2+
+							" depth="+nslices+
+							" average");
+					}
+
 					if (nImages==0) break;
 					Stack.getDimensions(width, height,
 										nchannels, depth, nframes);
@@ -3107,6 +3389,7 @@ debuged by Marcel Boeglin 2019/05/07 (mail to Wayne Rasband)*/
 						print("height = "+height);
 						print("depth = "+depth);
 						print("nframes = "+nframes);
+						print("timeRange = "+timeRange);
 					}
 					nimg++;
 					bitdepth = bitDepth();
@@ -3120,7 +3403,9 @@ debuged by Marcel Boeglin 2019/05/07 (mail to Wayne Rasband)*/
 					//! binning may be different for each channel
 					//if (pp==1 && tt==1) getXYCalibration(imageInfo);
 					print("i = "+ i+"  j = "+j+"   t = "+t+"   c= "+c);
-					if (t==1 && (c==0 || c==1)) {
+					if (t==startT && (c==0 || c==1)) {
+					//if (t==firstTimePoint && (c==0 || c==1)) {
+					//if (t==1 && (c==0 || c==1)) {//old
 						//print("i = "+ i+"  j = "+j+"   t = "+t+"   c= "+c);
 						imageID = getImageID();
 						if (getImageMetadata(path, imageID,
@@ -3154,7 +3439,8 @@ debuged by Marcel Boeglin 2019/05/07 (mail to Wayne Rasband)*/
 							acquisitionTimes[0] = acquisitionTime;
 						}
 					}
-					if (istimeseries && t==nFrames && (c==0 || c==1)) {
+					if (istimeseries && t==stopT && (c==0 || c==1)) {
+					//if (istimeseries && t==nFrames && (c==0 || c==1)) {//old
 						//print("\ni = "+ i+"  j = "+j+"   t = "+t+"   c= "+c);
 						print("");
 						imageID = getImageID();
@@ -3215,7 +3501,7 @@ debuged by Marcel Boeglin 2019/05/07 (mail to Wayne Rasband)*/
 					}
 					if (heterogeneousZDims) {
 						for (q=0; q<depths.length; q++) {
-							if (depths[q]<maxDepth &&depths[q]>1) {
+							if (depths[q]<maxDepth && depths[q]>1) {
 								selectImage(imgIDs[q]);
 								completeStackTo(maxDepth);
 								nslices = maxDepth;
@@ -3242,7 +3528,8 @@ debuged by Marcel Boeglin 2019/05/07 (mail to Wayne Rasband)*/
 					//marche pas ou defait + loin
 				}
 				rename("t"+t);
-				if (istimeseries && nFrames>1) {
+				if (istimeseries && (timeRange)>0) {
+				//if (istimeseries && nFrames>1) {//old
 					//print("t = "+t);
 					//print("tt = "+tt);
 					if (!oneOutputFilePerTimePoint) {
@@ -3309,6 +3596,10 @@ debuged by Marcel Boeglin 2019/05/07 (mail to Wayne Rasband)*/
 					voxelDepth = recalculateVoxelDepth(voxelDepth,
 						userLengthUnit, xyUnit);
 				}
+				if (resizeAtImport && resizeFactor!=1) {
+					voxelWidth /= resizeFactor;
+					voxelHeight /= resizeFactor;
+				}
 				setVoxelSize(voxelWidth, voxelHeight, voxelDepth, xyUnit);
 				//ImageJ uses same spatial calibration unit for x, y and z
 			}
@@ -3316,7 +3607,7 @@ debuged by Marcel Boeglin 2019/05/07 (mail to Wayne Rasband)*/
 				setVoxelSize(userPixelSize, userPixelSize,
 					voxelDepth, userLengthUnit);
 			}
-			if (istimeseries && pp==1) {
+			if (istimeseries && (lastTimePoint-firstTimePoint)>0 && pp==1) {
 				if (foundAcquisitionTime) {
 					dt =  computeTimelapseDuration(acquisitionYears, 
 												acquisitionMonths, 
@@ -3325,9 +3616,10 @@ debuged by Marcel Boeglin 2019/05/07 (mail to Wayne Rasband)*/
 					print("\ndt = "+dt);
 					print("");
 					meanFrameInterval = 0;
-					if (nFrames>1)
-						meanFrameInterval = dt/(nFrames-1);
-
+					//if (nFrames>1)
+					if (timeRange>0)
+						meanFrameInterval = dt/(timeRange);
+						//meanFrameInterval = dt/(nFrames-1);
 				}
 				else {
 					meanFrameInterval = userFrameInterval;
@@ -3337,8 +3629,12 @@ debuged by Marcel Boeglin 2019/05/07 (mail to Wayne Rasband)*/
 				//print("usedChannels.length = "+usedChannels.length);
 				//Stack.setDimensions(usedChannels.length,nslices,nFrames);
 				print("nChannels = "+nChannels);
-				if (nChannels*nslices*nFrames>1)
+				if (nChannels*nslices*timeRange>1)
+					Stack.setDimensions(nChannels, nslices, timeRange+1);
+				/*
+				 if (nChannels*nslices*nFrames>1)
 					Stack.setDimensions(nChannels, nslices, nFrames);
+				*/
 				//if (channelsToDo.length*nslices*nFrames>1)
 				//	Stack.setDimensions(channelsToDo.length, nslices, nFrames);
 
