@@ -80,7 +80,7 @@
 
 var dBug = false;
 var macroName = "MetamorphFilesFolderToHyperstacks";
-var version = "43m";
+var version = "43n";
 var author = "Author: Marcel Boeglin 2018-2019";
 var msg = macroName+"\nVersion: "+version+"\n"+author;
 var info = "Created by "+macroName+"\n"+author+"\nE-mail: boeglin@igbmc.fr";
@@ -3148,6 +3148,7 @@ function processFolder() {
 			print("stopT = "+stopT);
 			if (startT>stopT) startT = stopT;
 			print("startT = "+startT+"    stopT = "+stopT);
+			stopT = round(stopT);
 			timeRange = stopT - startT;
 			print("timeRange = "+timeRange);
 			//tt = 0;//old
@@ -3252,8 +3253,6 @@ function processFolder() {
 					}
 					else {
 						if (t==startT && (c==0 || c==1)) {
-						//if (t==firstTimePoint && (c==0 || c==1)) {
-						//if (t==1 && (c==0 || c==1)) {//old
 							print("i="+ i+"  j="+j+"  t="+t+"  c="+c);
 							open(path, 1);
 							tmpID = getImageID();
@@ -3517,7 +3516,6 @@ function processFolder() {
 				if (nimg>1) {
 					//! binning may be different for each channel
 					IJ.redirectErrorMessages();
-					//could fail until 43e (BUG in getSeriesFilenames(filenames))
 					run("Merge Channels...", channelsStr+" create");
 				}
 				else {
@@ -3529,7 +3527,6 @@ function processFolder() {
 				}
 				rename("t"+t);
 				if (istimeseries && (timeRange)>0) {
-				//if (istimeseries && nFrames>1) {//old
 					//print("t = "+t);
 					//print("tt = "+tt);
 					if (!oneOutputFilePerTimePoint) {
@@ -3560,15 +3557,26 @@ function processFolder() {
 							run(lutName);
 						}
 						setMetadata("Info", info);
-						outname = str1+str3+str4;
+
+						outname = str1+str3;
+						outdirSuffix = outname;
+						if (cropAtImport)
+							outname = outname + "_x"+roiX+"y"+roiY;
+						if (resizeAtImport && resizeFactor!=1)
+							outname = outname + "_resized"+resizeFactor;
+						if (startSlice!=1 || stopSlice!=numberOfPlanes)
+							outname = outname + "_z"+startSlice+"-"+stopSlice;
+						if (istimeseries && !oneOutputFilePerTimePoint)
+							if (startT!=1 || stopT!=lastTimePoint)
+								outname = outname + "_t"+startT+"-"+stopT;
+						outname = outname++str4;
 						outdir = dir2;
 						if (createFolderForEachOutputSeries) {
-							outdir = outdir + "\\" + outname + "\\";
+							outdir = outdir + "\\" + outdirSuffix + "\\";
 							//print("1ere occurence : outdir = "+outdir);
 							File.makeDirectory(outdir);
 						}
 						saveAs("tiff", outdir+outname+".tif");
-						//saveAs("tiff", dir2+str1+str3+str4+".tif");//old
 						if( nImages>0) close();
 						selectWindow("Log");
 						saveAs("Text", dir2+"Log.txt");
@@ -3668,15 +3676,27 @@ function processFolder() {
 				//getLUT(illumSetting) finds LUT if wavelength not in filename
 				lutName = getLUT(illumSetting);
 				run(lutName);
-				if (channelsToDo[0] == "Undefined_Channel") run("Grays");
+				if (channelsToDo[0]=="Undefined_Channel") run("Grays");
 			}
 			setMetadata("Info", info);
 			outname = str1+str3;
+			outdirSuffix = outname;
+			if (cropAtImport)
+				outname = outname + "_x"+roiX+"y"+roiY;
+			if (resizeAtImport && resizeFactor!=1)
+				outname = outname + "_resized"+resizeFactor;
+			if (startSlice!=1 || stopSlice!=numberOfPlanes)
+				outname = outname + "_z"+startSlice+"-"+stopSlice;
+			if (istimeseries && !oneOutputFilePerTimePoint)
+				if (startT!=1 || stopT!=lastTimePoint)
+					outname = outname + "_t"+startT+"-"+stopT;
 			outdir = dir2;
-			if (istimeseries && isTimeFilter(fF))
+			if (istimeseries && isTimeFilter(fF)) {
 				outname = outname + str4;
+				outdirSuffix = outdirSuffix + str4;
+			}
 			if (createFolderForEachOutputSeries) {
-				outdir = outdir + "\\" + outname + "\\";
+				outdir = outdir + "\\" + outdirSuffix + "\\";
 				//print("2eme occurence : outdir = "+outdir);
 				File.makeDirectory(outdir);
 			}
