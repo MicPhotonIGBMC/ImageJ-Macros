@@ -49,6 +49,7 @@ var indexROI;
 
 // INPUT/OUTPUT
 dir1 = getDirectory("Select the directory containing the lif files to analyse");
+dir2 = getDirectory("Select the directory to save the extracted nuclei");
 list = getFileList(dir1);
 
 
@@ -139,7 +140,7 @@ function extractSingleNucleus(imageIdentity) {	// image id
 		run("Clear Outside", "stack");
 		run("Select None");
 		run("Grays");
-		saveAs("tiff", dir1+File.separator+newImageTitle+File.separator+newImageTitle+"_nucleus_ROI_"+l+".tiff");
+		saveAs("tiff", dir2+newImageTitle+"_nucleus_ROI_"+l+".tiff");
 		selectImage(duplicateNucleusID);
 		close();
 	}
