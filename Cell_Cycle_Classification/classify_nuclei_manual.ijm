@@ -39,7 +39,9 @@ while (nImages > 0){
 roiManager("reset");
 
 // INITIALISE VARIABLES
+var list;
 var fileNameWithoutExtension;
+var classifiedNuclei = newArray();
 
 // INPUT/OUTPUT
 dir1 = getDirectory("Select the directory containing the nuclei to analyse");
@@ -69,22 +71,47 @@ function classifyNuclei(fileName){
 	Dialog.addCheckboxGroup(7, 1, checkLabels, checkStates);
 	Dialog.show();
 	g1Check = Dialog.getCheckbox();
-		if (g1Check == 1) {	fileName= fileName+"_CLASS_G1";}
+		if (g1Check == 1) {
+			fileName= fileName+"_CLASS_G1";
+			classNucleus = "G1";
+			}
 	earlySCheck = Dialog.getCheckbox();
-		if (earlySCheck == 1) {	fileName= fileName+"_CLASS_earlyS";}
+		if (earlySCheck == 1) {	
+			fileName= fileName+"_CLASS_earlyS";
+			classNucleus = "earlyS";
+			}
 	midS1Check = Dialog.getCheckbox();
-		if (midS1Check == 1) {	fileName= fileName+"_CLASS_midS-stage1";}
+		if (midS1Check == 1) {
+			fileName= fileName+"_CLASS_midS-stage1";
+			classNucleus = "midS-stage1";
+			}
 	midS2Check = Dialog.getCheckbox();
-		if (midS2Check == 1) {	fileName= fileName+"_CLASS_midS-stage2";}
+		if (midS2Check == 1) {
+			fileName= fileName+"_CLASS_midS-stage2";
+			classNucleus = "midS-stage2";
+			}
 	g2Check = Dialog.getCheckbox();
-		if (g2Check == 1) {	fileName= fileName+"_CLASS_G2";}
+		if (g2Check == 1) {
+			fileName= fileName+"_CLASS_G2";
+			classNucleus = "G2";
+			}
 	otherCheck = Dialog.getCheckbox();
-		if (otherCheck == 1) {	fileName= fileName+"_CLASS_other";}		
+		if (otherCheck == 1) {
+			fileName= fileName+"_CLASS_other";
+			classNucleus = "other";
+			}		
 	unknownCheck = Dialog.getCheckbox();
-		if (unknownCheck == 1) {	fileName= fileName+"_CLASS_unknown";}
+		if (unknownCheck == 1) {
+			fileName= fileName+"_CLASS_unknown";
+			classNucleus = "unknown";
+			}
 	//print(g1Check, earlySCheck, midS1Check, midS2Check, g2Check, otherCheck, unknownCheck);
 	print(fileName);
+	classifiedNuclei = Array.concat(classifiedNuclei, classNucleus);
 	close();
 }
 selectWindow("Log");
 saveAs("text", dir1+"Log.txt");
+Array.show("Results", list, classifiedNuclei);
+selectWindow("Results");
+saveAs("results", dir1+"classification.txt");
