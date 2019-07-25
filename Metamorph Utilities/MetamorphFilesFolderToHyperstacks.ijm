@@ -73,14 +73,14 @@
  *
  *
  * DEPENDENCY:
- * Z calibration needs Joachim Walter's tiff_tags plugin. It can be
- * downloaded it here: https://imagej.nih.gov/ij/plugins/tiff-tags.html
+ * Z calibration needs Joachim Walter's tiff_tags plugin which can be
+ * downloaded here: https://imagej.nih.gov/ij/plugins/tiff-tags.html
  *
 */
 
 var dBug = false;
 var macroName = "MetamorphFilesFolderToHyperstacks";
-var version = "43n";
+var version = "43o";
 var author = "Author: Marcel Boeglin 2018-2019";
 var msg = macroName+"\nVersion: "+version+"\n"+author;
 var info = "Created by "+macroName+"\n"+author+"\nE-mail: boeglin@igbmc.fr";
@@ -1443,6 +1443,11 @@ function printParams() {//TODO: add missing params
 
 	print("firstSlice = "+firstSlice);
 	print("lastSlice = "+lastSlice);
+
+	print("firstTimePoint = "+firstTimePoint);
+	print("lastTimePoint = "+lastTimePoint);
+	print("doRangeFrom_t1 = "+doRangeFrom_t1);
+	print("rangeFrom_t1 = "+rangeFrom_t1);
 
 	print("createFolderForEachOutputSeries = "+createFolderForEachOutputSeries);
 	print("oneOutputFilePerTimePoint = "+oneOutputFilePerTimePoint);
@@ -3139,7 +3144,8 @@ function processFolder() {
 			}
 			nslices = 1;
 			startT = firstTimePoint;
-			stopT = lastTimePoint;
+			if (lastTimePoint==-1) stopT = nFrames;
+			else stopT = lastTimePoint;
 			if (doRangeFrom_t1) stopT = nFrames * rangeFrom_t1 / 100;
 			if (startT<1) startT = 1;
 			if (stopT>nFrames) stopT = nFrames;
@@ -3151,10 +3157,8 @@ function processFolder() {
 			stopT = round(stopT);
 			timeRange = stopT - startT;
 			print("timeRange = "+timeRange);
-			//tt = 0;//old
-			tt = startT-1;
+			tt = 0;
 			for (t=startT; t<=stopT; t++) {
-			//for (t=1; t<=nFrames; t++) {//old
 				if (istimeseries) {
 					str4 = "_t" + t;
 					if (isTimeFilter(fF)
@@ -3403,8 +3407,6 @@ function processFolder() {
 					//if (pp==1 && tt==1) getXYCalibration(imageInfo);
 					print("i = "+ i+"  j = "+j+"   t = "+t+"   c= "+c);
 					if (t==startT && (c==0 || c==1)) {
-					//if (t==firstTimePoint && (c==0 || c==1)) {
-					//if (t==1 && (c==0 || c==1)) {//old
 						//print("i = "+ i+"  j = "+j+"   t = "+t+"   c= "+c);
 						imageID = getImageID();
 						if (getImageMetadata(path, imageID,
@@ -3430,7 +3432,6 @@ function processFolder() {
 						print("voxelDepth = "+voxelDepth);
 						print("acquisitionTime = "+acquisitionTime);
 						print("");
-						//if (true) {
 						if (istimeseries) {
 							acquisitionYears[0] = acquisitionYear;
 							acquisitionMonths[0] = acquisitionMonth;
@@ -3439,7 +3440,6 @@ function processFolder() {
 						}
 					}
 					if (istimeseries && t==stopT && (c==0 || c==1)) {
-					//if (istimeseries && t==nFrames && (c==0 || c==1)) {//old
 						//print("\ni = "+ i+"  j = "+j+"   t = "+t+"   c= "+c);
 						print("");
 						imageID = getImageID();
@@ -3517,6 +3517,7 @@ function processFolder() {
 					//! binning may be different for each channel
 					IJ.redirectErrorMessages();
 					run("Merge Channels...", channelsStr+" create");
+					nimg--;
 				}
 				else {
 					print("c = "+c);
@@ -3532,7 +3533,7 @@ function processFolder() {
 					if (!oneOutputFilePerTimePoint) {
 						if (tt==2)
 							run("Concatenate...",
-								"open image1=t1 image2=t2");
+								"open image1=t"+startT+" image2=t"+(startT+1));
 						if (tt>2)
 							run("Concatenate...",
 								"open image1=Untitled image2=t"+t);
@@ -3569,7 +3570,7 @@ function processFolder() {
 						if (istimeseries && !oneOutputFilePerTimePoint)
 							if (startT!=1 || stopT!=lastTimePoint)
 								outname = outname + "_t"+startT+"-"+stopT;
-						outname = outname++str4;
+						outname = outname+str4;
 						outdir = dir2;
 						if (createFolderForEachOutputSeries) {
 							outdir = outdir + "\\" + outdirSuffix + "\\";
@@ -3645,7 +3646,6 @@ function processFolder() {
 				*/
 				//if (channelsToDo.length*nslices*nFrames>1)
 				//	Stack.setDimensions(channelsToDo.length, nslices, nFrames);
-
 				if (foundAcquisitionTime && meanFrameInterval>=1) {
 					print("meanFrameInterval = "+(meanFrameInterval/1000)+" s");
 					Stack.setTUnit("s");
