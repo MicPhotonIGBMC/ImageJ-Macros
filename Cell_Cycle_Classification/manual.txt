@@ -1,0 +1,17 @@
+1- Start the classify_nuclei_manual.ijm
+
+2- Select the folder contaiing the nuclei images obtained after running the macro extract_nuclei.ijm
+
+3- When you classify an image, the class is written or added to the classification.txt and classification2.txt files (classifications in two different formats) while the classified image is moved to the ‘done’ subfolder.
+
+3b - The macro can be interrupted with cancel and resumed at a later time
+
+4 - If you made a mistake in a classification:
+  - stop the macro by ‘Cancel‘ in the dialog box
+  - close and don'tsave the open image
+  - open the classification files, remove the line with false classification in both files, save and close them
+  - move the erroneously classified image back to the parent folder
+  - restart the macro to continue with the classification
+
+5 - When the input folder contains no more images, the classification is finished.
+
