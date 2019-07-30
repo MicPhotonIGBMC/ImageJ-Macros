@@ -78,9 +78,20 @@
  *
 */
 
+
+//TODO
+/*
+ * si z = 1 a nSlices : utiliser open, ne pas ouvrir les slices 1 par 1 (lent)
+ * egalement si z = nSlices a 1, puis reverseStack
+ * 
+ * bug si on n'utilise pas le premier canal w1 (decale tout vers w1)
+ * 
+ * utiliser .nd pour remplacer s1, s2 etc par les noms des positions
+ */
+
 var dBug = false;
 var macroName = "MetamorphFilesFolderToHyperstacks";
-var version = "43o";
+var version = "43p";
 var author = "Author: Marcel Boeglin 2018-2019";
 var msg = macroName+"\nVersion: "+version+"\n"+author;
 var info = "Created by "+macroName+"\n"+author+"\nE-mail: boeglin@igbmc.fr";
@@ -2426,6 +2437,7 @@ function initChannelColorIndexes(chns) {
 	return idx;
 }
 
+
 function computeColorIndexes(chns, outputColors) {
 	print("\ncomputeColorIndexes(chns, outputColors):");
 	for (i=0; i<chns.length; i++) {
@@ -2444,6 +2456,27 @@ function computeColorIndexes(chns, outputColors) {
 	}
 	return clrIndexes;
 }
+
+
+function computeColorIndexes_OLD(chns, outputColors) {
+	print("\ncomputeColorIndexes(chns, outputColors):");
+	for (i=0; i<chns.length; i++) {
+		print("chns["+i+"] = "+chns[i]);
+		print("outputColors["+i+"] = "+outputColors[i]);
+	}
+	nchn = chns.length;
+	clrIndexes = newArray(nchn);
+	for (i=0; i<nchn; i++) {
+		for (j=0; j<chns.length; j++) {
+			if (chns[i]==chns[j]) {
+				clrIndexes[i] = colorIndex(outputColors[j]);
+				break;
+			}
+		}
+	}
+	return clrIndexes;
+}
+
 
 //to manage colors for each series independently
 function getChannelColorIndexesSeriesBySeries(imageList) {
@@ -2474,14 +2507,19 @@ function ensureColorIndexesAreDifferent(colourIndexes) {
 	return clrIndexes;
 }
 
-/** returns the array of channels in growing order of c1, c2, ..., c7
- * param chns: the channel names array to be reordered
- * param channelCompositeStrings: the array of "c"+i strings, i=1,7
- * 		defining channel colors and positions in the composite image */
-function reorderChannels(chns, channelCompositeStrings) {
-	dbg = false;
+
+/** reorders chns, the array of channels, in growing order of c1, c2, ..., c7
+ * applies the same order to 'array' and returns its reordered version
+ * param 'array': the array to be reordered
+ * param 'chns': the channel names array used to reorder 'array'
+ * param 'channelCompositeStrings': the array of "c"+i strings, i=1,7
+ * 		defining channel colors and positions in the composite image
+ * 'array' and 'chns' must have same length*/
+function reorderArray(anArray, chns, channelCompositeStrings) {
+	dbg = true;
 	nchn = chns.length;
-	reorderedChannels = Array.copy(chns);
+	array2 = Array.copy(anArray);
+	chns2 = Array.copy(chns);
 	chnPositions = newArray(nchn);
 	for (i=0; i<nchn; i++) {
 	 	chnPositions[i]=parseInt(substring(channelCompositeStrings[i],1));
@@ -2492,16 +2530,20 @@ function reorderChannels(chns, channelCompositeStrings) {
 				tmp = chnPositions[j];
 				chnPositions[j] = chnPositions[i];
 				chnPositions[i] = tmp;
-				tmp = reorderedChannels[j];
-				reorderedChannels[j] = reorderedChannels[i];
-				reorderedChannels[i] = tmp;
+				//print("chnPositions[j] < chnPositions[i]");
+				tmp = chns2[j];
+				chns2[j] = chns2[i];
+				chns2[i] = tmp;
+				tmp = array2[j];
+				array2[j] = array2[i];
+				array2[i] = tmp;
 			}
 		}
 	}
-	if (dbg) for (i=0; i<reorderedChannels.length; i++) {
-		print("reorderedChannels["+i+"] = "+reorderedChannels[i]);
+	if (dbg) for (i=0; i<array2.length; i++) {
+		//print("\nInside reorderArray(): reorderedArray["+i+"] = "+array2[i]);
 	}
-	return reorderedChannels;
+	return array2;
 }
 
 function hasDuplicateColorIndex(colourIndexes) {
@@ -2974,20 +3016,20 @@ function processFolder() {
 		nFilesInSeries = seriesFileNumbers[i];//~ supra
 		if (dbg) print("nFilesInSeries = "+nFilesInSeries);
 		channelGroupIndex = seriesChannelGroups[i];//FAUX
-		if (dbg) print("channelGroupIndex = "+channelGroupIndex);
+		if (true) print("channelGroupIndex = "+channelGroupIndex);
 		doChannels = toArray(doChannelsFromSequences[channelGroupIndex], ",");
-		if (dbg) for (k=0; k<doChannels.length; k++) {
+		if (true) for (k=0; k<doChannels.length; k++) {
 			print("doChannels["+k+"] = "+doChannels[k]);
 		}
 		nChannels = 0;
 		for (c=0; c<doChannels.length; c++) {
 			if (doChannels[c]) nChannels++;
 		}
-		if (dbg) print("nChannels = "+nChannels);
+		if (true) print("nChannels = "+nChannels);
 		//channels = getChannelNames(fnames, seriesNames[i]);//old
-		channelsToDo = toArray(seriesChannelSequences[i], ",");//new
-		if (dbg) for (q=0; q<channelsToDo.length; q++) {
-			print("channelsToDo["+q+"] = "+channelsToDo[q]);
+		allChannels = toArray(seriesChannelSequences[i], ",");//new
+		if (true) for (q=0; q<allChannels.length; q++) {
+			print("allChannels["+q+"] = "+allChannels[q]);
 		}
 		print("ProcessFolder(): seies number "+i+":");
 		chnColors = toArray(
@@ -3006,37 +3048,35 @@ function processFolder() {
 		seiesColors = newArray(nChannels);
 		saturations = newArray(nChannels);
 		k=0;
-		for (c=0; c<channelsToDo.length; c++) {
+		for (c=0; c<allChannels.length; c++) {
 			if (doChannels[c]) {//sometimes index out of range
-				channels[k] = channelsToDo[c];
+				channels[k] = allChannels[c];
 				seiesColors[k] = chnColors[c];
 				saturations[k] = chnSaturations[c];
 				k++;
 			}
 		}
 		print("nChannels = "+nChannels);
-		for (k=0; k<nChannels; k++) {
-			print(channels[k]);
-			print(seiesColors[k]);
-			print(saturations[k]);
+		for (k=0; k<nChannels; k++) {//ok meme si 1er canal ignore
+			print("channels["+k+"] = "+channels[k]);
+			print("seiesColors["+k+"] = "+seiesColors[k]);
+			print("saturations["+k+"] = "+saturations[k]);
 		}
-
-
-		//dualChannelSeparator = "\\s";
-		//getIlluminationSettings(channels, dualChannelSeparator);
 
 		channelColorIndexes = computeColorIndexes(channels, seiesColors);
-		if (dbg) for (k=0; k<channels.length; k++) {
-			print("channelColorIndexes["+k+"] = "+channelColorIndexes[k]);
-		}
-		channelColorIndexes = ensureColorIndexesAreDifferent(
-					channelColorIndexes);
+
+// ICI ICI ICI ICI ICI ICI ICI ICI ICI ICI ICI ICI ICI ICI ICI ICI ICI ICI
+// BUG sur les couleurs des canaux: resolu dans 43p
+
+		compositeStrs = newArray(nChannels);//ancien
+		//compositeStrs = newArray(allChannels.length);
+
 		if (dbg)
 			print("channelColorIndexes.length = "+
 				channelColorIndexes.length);
 		if (dbg) print("Channels to do:");
-		if (dbg) for (k=0; k<channels.length; k++) {
-			print("channels["+k+"] = "+channels[k]);
+		if (true) for (k=0; k<channels.length; k++) {
+			//print("channels["+k+"] = "+channels[k]);
 			print("channelColorIndexes["+k+"] = "+channelColorIndexes[k]);
 		}
 		if (dbg) print("seiesColors.length = "+seiesColors.length);
@@ -3044,27 +3084,44 @@ function processFolder() {
 		for (k=0; k<channels.length; k++) {
 //			print(usedChannels[k] + " : "+
 //					compositeChannels[channelColorIndexes[k]]);
-			//print(channelsToDo[k] + " : "+colors[channelColorIndexes[k]]);
+			//print(allChannels[k] + " : "+colors[channelColorIndexes[k]]);
 			print(channels[k] + " : "+colors[channelColorIndexes[k]]);
-			print("saturations[k] = "+saturations[k]);
+			print("saturations["+k+"] = "+saturations[k]);
 		}
-		compositeStrs = newArray(nChannels);//ancien
-		//compositeStrs = newArray(channelsToDo.length);
+		//compositeStrs = newArray(nChannels);//ancien
+		//compositeStrs = newArray(allChannels.length);
 		for (k=0; k<channels.length; k++) {
-		//for (k=0; k<channelsToDo.length; k++) {
+		//for (k=0; k<allChannels.length; k++) {
 			compositeStrs[k]=compositeChannels[channelColorIndexes[k]];
-			if (dbg) print("compositeStrs["+k+"] = "+compositeStrs[k]);
+			if (true) print("compositeStrs["+k+"] = "+compositeStrs[k]);
 		}
 		//to be merged, channels must be reordered by increasing c numbers
-		reorderedChannels = reorderChannels(channels, compositeStrs);
-		for (c=0; c<nChannels; c++) {
-			print("reorderedChannels["+c+"] = "+reorderedChannels[c]);
+
+	//	reorderedChannels = reorderChannels(channels, compositeStrs);//OK
+		reorderedChannels = reorderArray(channels, channels, compositeStrs);
+		reorderedCompositeStrs = reorderArray(
+									compositeStrs, channels, compositeStrs);
+		seiesColors = reorderArray(seiesColors, channels, compositeStrs);
+		saturations = reorderArray(saturations, channels, compositeStrs);
+
+		print("\nProcess folder(): computeColorIndexes(chns, outputColors):");
+		channelColorIndexes = computeColorIndexes(reorderedChannels, seiesColors);
+		channelColorIndexes = ensureColorIndexesAreDifferent(
+					channelColorIndexes);
+
+		for (k=0; k<nChannels; k++) {//semble OK
+			print("channels["+k+"] = "+channels[k]);
+			print("reorderedChannels["+k+"] = "+reorderedChannels[k]);
+			print("reorderedCompositeStrs["+k+"] = "+reorderedCompositeStrs[k]);
+			print("seiesColors["+k+"] = "+seiesColors[k]);
+			print("saturations["+k+"] = "+saturations[k]);
 		}
+
 		//extensions = getExtensions(list, seriesNames[i]);
 		extensions = getExtensions(fnames, seriesNames[i]);
 		if (dbg) print("extensions:");
-		if (dbg) for (c=0; c<extensions.length; c++)
-			print(extensions[c]);
+		if (dbg) for (k=0; k<extensions.length; k++)
+			print(extensions[k]);
 		//ismultiposition = isMultiPosition(list, seriesNames[i]);
 		ismultiposition = isMultiPosition(fnames, seriesNames[i]);
 		if (ismultiposition)
@@ -3179,11 +3236,10 @@ function processFolder() {
 				maxDepth = 1;
 				for (c=0; c<nChannels; c++) {//a
 					//if (nChannels>1) {
-						//str2 = reorderedChannels[c];//permute les canaux
-						str2 = channels[c];//semble ok
-						//print("reorderedChannels["+c+"] = "+
-						//		reorderedChannels[c]);
-						//str2 = usedChannels[c];
+						str2 = reorderedChannels[c];//permute canaux
+						//str2 = channels[c];//decale w2 en w1 si w1 decoche
+						print("reorderedChannels["+c+"] = "+
+								reorderedChannels[c]);
 						if (isWaveFilter(fF) && indexOf(str2, fF)<0) {
 							continue;
 						}
@@ -3218,11 +3274,11 @@ function processFolder() {
 						print("width="+width+" height="+height+" depth="+depth);
 						//newImage("", type, width, height,
 						//		nchannels, depth, nframes);
-						//channelsToDo.length
+						//allChannels.length
 						if (doZprojs) depth = 1;
 						newImage("", type+" black", width, height, depth);
 						//newImage("", type, width, height,
-						//		channelsToDo.length, depth, nFrames); //false
+						//		allChannels.length, depth, nFrames); //false
 						print("black image: w="+getWidth()+"  h="+getHeight()+
 									"  depth="+nSlices);
 						fontSize = 12;
@@ -3314,32 +3370,40 @@ function processFolder() {
 						if (true) print("slices = "+slices);
 
 						IJ.redirectErrorMessages();
-						open(path, startSlice);
-						if (slices>1) {
-							if (stopSlice<startSlice) {
-								for (s=startSlice-1; s>=stopSlice; s--) {
-									IJ.redirectErrorMessages();
-									print("s = "+s);
-									open(path, s);
-									run("Select All");
-									run("Copy");
-									if( nImages>0) close();
-									run("Add Slice");
-									run("Paste");
-									run("Select None");
+						if (slices==numberOfPlanes) {
+							open(path);
+							if (startSlice==numberOfPlanes &&
+									numberOfPlanes>1 && !doZprojs)
+								run("Reverse");
+						}
+						else {
+							open(path, startSlice);
+							if (slices>1) {
+								if (stopSlice<startSlice) {
+									for (s=startSlice-1; s>=stopSlice; s--) {
+										IJ.redirectErrorMessages();
+										print("s = "+s);
+										open(path, s);
+										run("Select All");
+										run("Copy");
+										if( nImages>0) close();
+										run("Add Slice");
+										run("Paste");
+										run("Select None");
+									}
 								}
-							}
-							else {
-								for (s=startSlice+1; s<=stopSlice; s++) {
-									IJ.redirectErrorMessages();
-									print("s = "+s);
-									open(path, s);
-									run("Select All");
-									run("Copy");
-									if( nImages>0) close();
-									run("Add Slice");
-									run("Paste");
-									run("Select None");
+								else {
+									for (s=startSlice+1; s<=stopSlice; s++) {
+										IJ.redirectErrorMessages();
+										print("s = "+s);
+										open(path, s);
+										run("Select All");
+										run("Copy");
+										if( nImages>0) close();
+										run("Add Slice");
+										run("Paste");
+										run("Select None");
+									}
 								}
 							}
 						}
@@ -3481,7 +3545,8 @@ function processFolder() {
 					imgIDs[c] = getImageID();
 					imgTitles[c] = getTitle();
 					//! binning may be different for each channel
-					channelsStr += compositeStrs[c]+"=["+imgTitles[c]+"]";
+					channelsStr += reorderedCompositeStrs[c]+
+									"=["+imgTitles[c]+"]";
 				}
 				if (nimg==0) continue;
 				//print("doZprojs = "+doZprojs);
@@ -3523,7 +3588,7 @@ function processFolder() {
 					print("c = "+c);
 					print("cc = "+cc);
 					//mettre la couleur du canal
-					//run(colors[channelColorIndexes[cc]]);//index out of range
+					//run(colors[channelColorIndexes[cc]]);
 					//marche pas ou defait + loin
 				}
 				rename("t"+t);
@@ -3549,6 +3614,7 @@ function processFolder() {
 						enhanceContrast(id, saturations);
 						id = getImageID();
 						labelChannels(id, reorderedChannels);
+					//	labelChannels(id, channels);
 						Stack.getDimensions(w,h,nch,slices,frames);
 						if (nch==1) {
 							//print("run("+colors[channelColorIndexes[0]]+")");
@@ -3567,7 +3633,8 @@ function processFolder() {
 							outname = outname + "_resized"+resizeFactor;
 						if (startSlice!=1 || stopSlice!=numberOfPlanes)
 							outname = outname + "_z"+startSlice+"-"+stopSlice;
-						if (istimeseries && !oneOutputFilePerTimePoint)
+						if (istimeseries && !oneOutputFilePerTimePoint &&
+								startT!=1 && stopT!=nFrames)
 							if (startT!=1 || stopT!=lastTimePoint)
 								outname = outname + "_t"+startT+"-"+stopT;
 						outname = outname+str4;
@@ -3644,8 +3711,11 @@ function processFolder() {
 				 if (nChannels*nslices*nFrames>1)
 					Stack.setDimensions(nChannels, nslices, nFrames);
 				*/
-				//if (channelsToDo.length*nslices*nFrames>1)
-				//	Stack.setDimensions(channelsToDo.length, nslices, nFrames);
+				//if (allChannels.length*nslices*nFrames>1)
+				//	Stack.setDimensions(allChannels.length, nslices, nFrames);
+				//if (channels.length*nslices*nFrames>1)
+				//	Stack.setDimensions(channels.length, nslices, nFrames);
+
 				if (foundAcquisitionTime && meanFrameInterval>=1) {
 					print("meanFrameInterval = "+(meanFrameInterval/1000)+" s");
 					Stack.setTUnit("s");
@@ -3661,11 +3731,11 @@ function processFolder() {
 			if (isTimeFilter(fF)) {
 				//Stack.setDimensions(usedChannels.length, nslices, 1);
 				Stack.setDimensions(nChannels, nslices, 1);
-				//Stack.setDimensions(channelsToDo.length, nslices, 1);
+				//Stack.setDimensions(allChannels.length, nslices, 1);
 			}
 			id = getImageID();
-			//labelChannels(id, channels);
 			//labelChannels(id, usedChannels);
+			//labelChannels(id, channels);
 			labelChannels(id, reorderedChannels);
 			id = getImageID();
 			enhanceContrast(id, saturations);
@@ -3676,7 +3746,8 @@ function processFolder() {
 				//getLUT(illumSetting) finds LUT if wavelength not in filename
 				lutName = getLUT(illumSetting);
 				run(lutName);
-				if (channelsToDo[0]=="Undefined_Channel") run("Grays");
+				//if (allChannels[0]=="Undefined_Channel") run("Grays");
+				if (channels[0]=="Undefined_Channel") run("Grays");
 			}
 			setMetadata("Info", info);
 			outname = str1+str3;
@@ -3687,7 +3758,8 @@ function processFolder() {
 				outname = outname + "_resized"+resizeFactor;
 			if (startSlice!=1 || stopSlice!=numberOfPlanes)
 				outname = outname + "_z"+startSlice+"-"+stopSlice;
-			if (istimeseries && !oneOutputFilePerTimePoint)
+			if (istimeseries && !oneOutputFilePerTimePoint &&
+					startT!=1 && stopT!=nFrames)
 				if (startT!=1 || stopT!=lastTimePoint)
 					outname = outname + "_t"+startT+"-"+stopT;
 			outdir = dir2;
@@ -3717,6 +3789,7 @@ function processFolder() {
 	print("");
 	setBatchMode(false);
 }//end processFolder()
+
 
 /** Returns LUT derived from illumSettingfound in Metadata
  * This method is used to assign channel color of images for which  wavelength
@@ -3753,9 +3826,9 @@ function labelChannels(imageID, labels) {
 	}
 	if (nchn>labels.length) nchn = labels.length;
 	for (c=0; c<nchn; c++) {
-		//print("labels["+c+"] = "+labels[c]);
+		print("labels["+c+"] = "+labels[c]);
 		label = labels[c];
-		//print("label = "+label);
+		print("label = "+label);
 		for (z=1; z<=slices; z++) {
 			for (t=1; t<=frames; t++) {
 				Stack.setPosition(c+1, z, t);
@@ -3766,10 +3839,10 @@ function labelChannels(imageID, labels) {
 	selectImage(id);
 }
 
-function enhanceContrast(imageID, saturations) {
+function enhanceContrast(imageID, saturationsArray) {
 	print("Enhancing contrast:");
-	for (c=0; c<saturations.length; c++) {
-		print("saturations["+c+"] = "+saturations[c]);
+	for (c=0; c<saturationsArray.length; c++) {
+		print("saturationsArray["+c+"] = "+saturationsArray[c]);
 	}
 	id = getImageID();
 	selectImage(imageID);
@@ -3777,10 +3850,10 @@ function enhanceContrast(imageID, saturations) {
 	if (slices>2) Stack.setSlice(slices/2);
 	if (frames>2) Stack.setFrame(frames/2);
 	for (c=0; c<nchn; c++) {
-		if (saturations[c]>0) {
+		if (saturationsArray[c]>0) {
 			//print("c+1 = "+(c+1));
 			if (nchn>1) Stack.setChannel(c+1);
-			saturated = saturations[c];
+			saturated = saturationsArray[c];
 			//print("saturated = "+saturated);
 			run("Enhance Contrast","saturated="+saturated);
 		}
