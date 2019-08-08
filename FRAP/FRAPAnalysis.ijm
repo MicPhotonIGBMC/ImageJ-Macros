@@ -1,18 +1,32 @@
-/*Macro written by Elvire GUIOT - 30/07/2019 
-The macro	- load a time sequence of images recorded with Metamorph from a .tif of the list 
-			- ask to user to draw an ROI backgroung
-			-ask to user to draw an ROI for quantification and analysis of the bleaching
-			-ask to user to select a .rgn file with the FRAP metamorph ROI
-			-plot the 3 curves
-			-extract the mean intensity values and create a txt files with the raw datas
+/*Macro written by Elvire GUIOT - 08/08/2019 
+ 
+Macro [1]	When pressing [1]
+			- load a time sequence of images recorded with Metamorph from a .tif of the list 
+			- ask to user to draw an ROI background
+			- ask to user to draw a Ref ROI for quantification and analysis of the bleaching
+			- ask to user to select a .rgn file with the FRAP metamorph ROI
+			- plot the raw data curves 
+			- extract the mean intensity values and create a txt files with the raw datas
 
-			-substract the bacgrund
-			-noramilze the curve and correct with the bleaching
-			-fit with a double exponential + offset
-			-plot
-			-creat a txt fikle with the results
-			-save the fit plot
+			- substract the background
+			- normalize the curve and correct with the bleaching
+			- plot the normalize data curves 
+
+Macro [2]	When pressing [2]		
+			- fit with a single exponential + offset: y = A* (1 - exp(-x * t/Tau)) + Y0)
+			-extract half time of recovery T1/2 = Tau*ln 2
+			- plot the normData + fit
+			- creat a txt file with the results
+			- save the fit plot
+
 			
+Macro [3]	When pressing [3]
+			- fit with a double exponential + offset: y = A1 * (1 - exp(-x * t/Tau1)) + A2* (1 - exp(-x * t/Tau2)) + y0
+			-extract Tau1 A1, Tau2 A2
+			- plot the normData + fit
+			- creat a txt file with the results
+			- save the fit plot
+
 
 */
 
@@ -50,8 +64,7 @@ macro "Load_FRAP_Sequence [1]"
 	setBatchMode(true);
 	open(ParentPath + "\\"+ SequenceName + "_t1.tif");
 	t0	= getImageTime();
-	
-	
+		
 	test=1;
 	i=1;	
 	while (test==1)
@@ -263,11 +276,167 @@ for(i = 2; i < =nbSliceStack; i++)
 
 }
 
+
+
+
+
 /* -----------------------------------------------------------------------------------------------------------------*/
 /*                                                  Analyse du FRAP                                             */
 /* ----------------------------------------------------------------------------------------- -----------------------*/
 
-/*	Dialog.create("DataSet for fitting");
+macro "Analyse FRAPsingleExpo [2]"{
+
+
+roiManager("Sort");																					//pour que les ROI soient toujours dans le m^me ordre car appelées ensuite selon leur index
+	
+/* -----------------------------------------------------------------------------------------------------------------*/
+/*                                                  plot Raw datas                                                */
+/* ----------------------------------------------------------------------------------------- -----------------------*/
+
+		selectWindow(SequenceName);
+		Back = newArray(nSlices);
+		Ref  = newArray(nSlices);
+		Frap = newArray(nSlices);
+
+/* création des tables de mesures des intensités dans les ROIs*/		
+			for (i = 0; i != nSlices; i++)
+				{ 
+			num=i+1;
+			roiManager("Select", 0);
+			setSlice (num);
+			getStatistics( area,mean);
+			Back[i]=mean;
+			roiManager("Select", 2);
+			setSlice (num);
+			getStatistics (area, mean);
+			Ref[i]=mean;
+			roiManager("Select", 1);
+			setSlice (num);
+			getStatistics (area, mean);
+			Frap[i]=mean;
+				}
+
+
+/*----------------------------------------graph raws datas--------------------------------------------------- */
+		
+
+		Plot.create    ("Raw Datas", "Temps sec", "MeanIntensity");
+		Plot.setLimits (0, imageTime[imageTime.length-1], BackMean / 1.02, Frap[0] * 1.02);
+		Plot.setColor  ("black");
+		Plot.add       ("line", imageTime, Back);
+		Plot.add       ("circle", imageTime, Back);
+
+		Plot.setColor  ("green");
+		Plot.add       ("line", imageTime, Ref);
+		Plot.add       ("circle", imageTime, Ref);
+		
+		
+		Plot.setColor  ("red");
+		Plot.add       ("line", imageTime, Frap);
+		Plot.add       ("circle", imageTime, Frap);
+		
+		Plot.show();
+
+
+
+/*----------------------------------------file.txt raws datas--------------------------------------------------- */
+
+	print("\\Clear") ;		
+	//for(i = 2; i < =nbSliceStack; i++)	
+	//	print (imageTime[i-1]);  /*recup des valeurs de temps pour chaque image - t0*/
+	
+	print ("Time(sec) ", "Background", "Bleaching" , "FRAP");   // creat a txt file with the mean intensity datas 
+	for (i = 0; i != nbSliceStack; i++)
+	print(imageTime[i], Back[i],Ref[i],Frap[i]);
+	
+	selectWindow("Log");
+	resName=ParentPath+ "\\" + SequenceName+"_RawDatas.txt";
+	saveAs("Text", resName);
+
+
+/*----------------------------------------soustraction bakground et normalisation--------------------------------------------------- */
+
+// Soustraction du background
+		
+		FrapCorrBack   = newArray(nbSliceStack);
+		RefCorrBack   = newArray(nbSliceStack);
+		for(i = 0; i != nbSliceStack; i++)
+		{
+			FrapCorrBack[i] = Frap[i] - BackMean;
+			RefCorrBack [i] = Ref [i] - BackMean;			// soustraction BackMean
+		}
+
+	// Find the image num of the FRAP Event
+	
+	frapIndex = 0;
+	selectWindow(SequenceName);
+	setSlice(1);
+	getStatistics(area, meanMin);
+	for (i = 2; i != nbSliceStack; i++)
+	{
+		setSlice(i + 1);
+		getStatistics(area, mean);
+		if(mean < meanMin)
+		{
+			meanMin		= mean;
+			frapIndex	= i;
+		}
+	}
+	setSlice(1);
+	frapIndex++;
+	xFrap=frapIndex;
+	print (xFrap);
+
+// normalisation à 1
+
+		// ****** Premiere normalisation (Normalisation a 1 de Frap et Ref)
+		SumPBFrap = 0;
+		for (i = 1; i != xFrap - 1; i++)
+			SumPBFrap += FrapCorrBack[i];											// determination de maxFrap, valeur utilisee pour normaliser la courbe de FRAP a 1
+		maxFrap = SumPBFrap / (xFrap - 2);										// maxFrap est la moyenne des intensites prebleach a l'exclusion de la 1ere (cause effet dark state)
+
+		SumPBRef = 0;
+		for(i = 1; i != xFrap - 1; i++)
+			SumPBRef += RefCorrBack[i];											// determination de maxRef, valeur utilisee pour normaliser la courbe de FRAP a 1
+		maxRef = SumPBRef / (xFrap - 2);										// maxRef est la moyenne des intensites prebleach a l'exclusion de la 1ere (cause effet dark state)
+
+		NormFrap = newArray(nbSliceStack);
+		NormRef  = newArray(nbSliceStack);
+		for(i = 0; i != nbSliceStack; i++)
+		{
+			NormFrap[i] = (FrapCorrBack[i] / maxFrap);
+			NormRef [i] = (RefCorrBack [i] / maxRef);
+		}
+
+
+	// ****** Seconde Normalisation (Normalisation de Frap par Ref)
+		Norm2Frap = newArray(nbSliceStack);
+		for(i = 0; i != nbSliceStack; i++)
+			Norm2Frap[i] = NormFrap[i] / NormRef[i];
+
+
+		Plot.create    ("Data CorrNorm", "Temps sec", "MeanIntensity");
+		Plot.setLimits (0, imageTime[imageTime.length-1], 0, Norm2Frap[0] * 1.1);
+		
+		Plot.setColor  ("green");
+		Plot.add       ("line", imageTime, NormRef);
+		Plot.add       ("circle", imageTime, NormRef);
+
+		Plot.setColor  ("blue");
+		Plot.add       ("line", imageTime, NormFrap);
+		Plot.add       ("circle", imageTime, NormFrap);
+		
+		Plot.setColor  ("red");
+		Plot.add       ("line", imageTime, Norm2Frap);
+		Plot.add       ("circle", imageTime, Norm2Frap);
+		
+		Plot.show();
+
+/* -----------------------------------------------------------------------------------------------------------------*/
+/*                                                  Analyse du FRAP                                             */
+/* ----------------------------------------------------------------------------------------- -----------------------*/
+
+	Dialog.create("DataSet for fitting");
 	items = newArray("Red _withRefCorr", "Blue_nonRefCorr");
 	Dialog.addRadioButtonGroup("DataSet for fitting", items, 1, 1, "Red _withRefCorr");
 	Dialog.show();
@@ -283,7 +452,7 @@ for(i = 2; i < =nbSliceStack; i++)
 
 
 		//****** Selection de la portion de courbe à considéerer pour le fit 
-		RecimageTime = newArray(nbSliceStack - xFrap + 1);							//t0 pour le point xFrap 
+		RecimageTime = newArray(nbSliceStack - xFrap + 1);							//t0 = pour le point xFrap 
 		RecFrap      = newArray(nbSliceStack - xFrap + 1);							
 		for (i = 0; i != nbSliceStack - xFrap + 1; i++)
 		{
@@ -291,43 +460,64 @@ for(i = 2; i < =nbSliceStack; i++)
 			RecFrap     [i] = NFrap   [i + xFrap - 1];
 		}
 
-		 	
-		//****** fit de la courbe de recouvrement
-		FitFrap = newArray (RecFrap.length); 
+		//********Fit sur toute la courbe ou selection d'une plage (limite en temps) 			
+		Dialog.create("End Time for fitting?");
+		Dialog.addString("Stop ", "WholeTime", 20);
+		Dialog.show();
+		SelectEndTime=Dialog.getString();	
+		test =  matches (SelectEndTime,"WholeTime") ;							//tfin si on ne veut pas considerer la totalité de points
+		if (test ==1){
+	 		FrapLength= RecFrap.length; 								 
+	 		}
+	 		else {
+			endTime=parseInt( SelectEndTime);
+			i=0;
+			do{
+					FrapLength=i;
+					i=i+1;
+				}  while( RecimageTime[i]<endTime);						
+	 		}
+	 		
+		FitFrap = newArray (FrapLength); 	
+
+				 	
+		//****** fit de la courbe de recouvrement 
+		FitFrap = newArray (FrapLength); 
+
+		XFrapToFit = newArray(FrapLength);							//t0 pour le point xFrap 
+		YFrapToFit = newArray(FrapLength);							
+		for (i = 0; i != FrapLength; i++)
+		{
+			XFrapToFit[i] = RecimageTime[i];
+			YFrapToFit[i] = RecFrap[i];
+		}
 		
-		Fit.doFit("y = a * (1 - exp(-x * b)) + c* (1 - exp(-x * d)) + e", RecimageTime, RecFrap);	
-		for (i = 0; i != RecFrap.length; i++)
-			FitFrap[i] = Fit.f(RecimageTime[i]);
-		A1   =     Fit.p(0);
-		Tau1 = 1 / Fit.p(1);
-		A2 	=  	 Fit.p(2);
-		Tau2 = 1 / Fit.p(3);
-		Yo  =     Fit.p(4);
+		Fit.doFit("y = a * (1 - exp(-x * b)) + c", XFrapToFit, YFrapToFit);	
+		for (i = 0; i != FrapLength; i++)
+			FitFrap[i] = Fit.f(XFrapToFit[i]);
+		A   =     Fit.p(0);
+		Tau = 1 / Fit.p(1);
+		Yo  =     Fit.p(2);
 		R2  =  Fit.rSquared;
 
-		
-
+			
 		//****** Equation de la courbe
-		//tdemi      = Tau*(log(2));
+		Tdemi      = Tau*(log(2)/2.303); 								  // div par 2.303 pour conversion log-ln
 		min       = FitFrap[0];
 		dynamique = 1 - min;
-		max       = FitFrap[FitFrap.length - 1];							// max=a*(1-exp(-10000000/b))+c; //(10000000 etant suppose etre l'infini)
+		max       = FitFrap[FrapLength - 1];							
 		mobile    = 100 * (max - min) / dynamique;
 		dynamique = (1 - min) * 100;										// conversion en %
-		poidsTau1=100*A1/(A1+A2);
-		poidsTau2=100*A2/(A1+A2);
-		
-			
-		
-
-	//****** Graph du fit
 	
+	
+	//****** Graph du fit
 
-		Plot.create    ("Fit", "Temps", "Intensite", RecimageTime, FitFrap);
-		Plot.setLimits (0, RecimageTime[RecimageTime.length - 1], NFrap[xFrap - 1] * 0.75, 1.1);
+
+		Plot.create    ("Fit", "Temps", "Intensite", XFrapToFit, FitFrap);
+		Plot.setLimits (0, XFrapToFit[FrapLength - 1]*0.95, NFrap[xFrap - 1] * 0.75, 1.1);
 		Plot.setColor  ("black"); 
 		Plot.setColor  ("red"); 
-		Plot.add       ("circles", RecimageTime, RecFrap); 
+		Plot.add       ("circles", XFrapToFit, YFrapToFit); 
 		Plot.setColor  ("blue");	
 		Plot.show();
 		FigName=ParentPath+ "\\" + SequenceName + "FitPlot";
@@ -336,34 +526,62 @@ for(i = 2; i < =nbSliceStack; i++)
 
 
 /* -----------------------------------------------------------------------------------------------------------------*/
-/*                                     creation du fichier résultats                                        *    /
+/*                                     creation des fichiesr résultats                                        *    /
 
 /* -----------------------------------------------------------------------------------------------------------------*/
-/*	print("\\Clear") ;		
 
-		print ("ImageSerie:",SequenceName);
-		print ("fit DoubleExponential+Offset");
-		print ("efficacité FRAP =",dynamique);												//paramètres issu du fit
-		print ("Mobile Fraction =",mobile);
-		print ("Tau1=", Tau1);
-		print ("%Tau1=", poidsTau1);
-		print ("Tau2=",Tau2);
-		print ("%Tau2=", poidsTau2);
-		print ("fit  goodness, R2 score=",R2); 
+
+//------------------------file.txt raws datas
+
+	print("\\Clear") ;		
+	//for(i = 2; i < =nbSliceStack; i++)	
+	//	print (imageTime[i-1]);  /*recup des valeurs de temps pour chaque image - t0*/
+	
+	print ("Time(sec) ", "Background", "Reference" , "FRAP");   // creat a txt file with the mean intensity datas 
+	for (i = 0; i != nbSliceStack; i++)
+	print(imageTime[i], Back[i],Ref[i],Frap[i]);
+	
+	selectWindow("Log");
+	resName=ParentPath+ "\\" + SequenceName+"_RawDatas.txt";
+	saveAs("Text", resName);
+
+
+
+//------------------------file.txt norm et fit datas
+
+
+	print("\\Clear") ;		
+
 	
 	print ("Time(sec) ", "DataNorm", "Fit");   // creat a txt file with the  datas 
 	for (i = 0; i != RecFrap.length; i++)
-	print(RecimageTime[i], RecFrap [i],FitFrap[i]);
+	print(RecimageTime[i], RecFrap [i]);
+			
+	print("Fit curve: ");
+		
+		print ("Time(sec) ", "Fit");   // creat a txt file with the  datas 
+	for (i = 0; i != FrapLength; i++)
+	print(RecimageTime[i],FitFrap[i]);
+	
+ print("Param from fit analysis: ");
+		
+		print ("ImageSerie:",SequenceName);
+		print ("fit SingleExponential+Offset");
+		print ("efficacité FRAP =",dynamique);												//paramètres issu du fit
+		print ("Mobile Fraction =",mobile);
+		print ("Tdemi=", Tdemi);
+		print ("fit  goodness, R2 score=",R2); 
 	
 	selectWindow("Log");
 	resName=ParentPath+ "\\" + SequenceName+"_ResultDatas.txt";
-	saveAs("Text", resName);*/
-
-//}
+	saveAs("Text", resName);
 
 
+}
 
-macro "Analyse FRAPdoubleExpo [2]"{
+
+
+macro "Analyse FRAPdoubleExpo [3]"{
 
 
 roiManager("Sort");																					//pour que les ROI soient toujours dans le m^me ordre car appelées ensuite selon leur index
