@@ -41,6 +41,7 @@ roiManager("reset");
 
 //VARIABLES
 var fileNameWithoutExtension;
+roiOption = "Selection";
 
 // INPUT/OUTPUT
 dir1 = getDirectory("Select the directory containing the lif files to analyse");
@@ -49,6 +50,13 @@ fs = File.separator;
 if (endsWith(dir2, fs)) dir2 = substring(dir2, 0, lastIndexOf(dir2, fs));
 dir2 += "_extractedNuclei"+fs;
 if (!File.exists(dir2)) File.makeDirectory(dir2);
+
+items = newArray("Selection", "Overlay");
+Dialog.create("Extract Nuclei From Overlay");
+Dialog.addMessage("");
+Dialog.addChoice("ROI in output image", items, roiOption);
+Dialog.show();
+roiOption = Dialog.getChoice();
 
 //Process LIF files in dir1
 list = getFileList(dir1);
@@ -105,6 +113,11 @@ function extractSingleNuclei(id, title) {
 		//run("Clear Outside", "stack");
 		//run("Select None");
 		run("Grays");
+		if (roiOption=="Overlay") {
+			Overlay.addSelection();
+			Overlay.setPosition(0);
+			run("Select None");
+		}
 		outputname = title+"_Nucleus"+i+".tif";
 		print(outputname);
 		saveAs("tiff", dir2+outputname);
