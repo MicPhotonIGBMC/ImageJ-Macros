@@ -16,7 +16,7 @@
  *   channel 4 = DAPI
  */ 
 
-// INITIALISE
+//INITIALISE
 print("\\Clear");
 setBatchMode(false);
 if (isOpen("Results")) {
@@ -30,22 +30,20 @@ run("Overlay Options...", "stroke=none width=0 fill=none");
 var markers = newArray("H3Ser10", "Edu", "Top2a", "DAPI");
 //var channelColors = newArray("Magenta", "Red", "Green", "Cyan");
 var channelColors = newArray("Gray", "Red", "Green", "Blue");
-var stages = newArray("G1", "early S", "mid S stage 1", "mid S stage 2", "Late S",
-					"G2", "Other", "Unclassified");
+var stages = newArray("G1", "early S", "mid S stage 1", "mid S stage 2",
+					"Late S", "G2", "Other", "Unclassified");
 
-// VARIABLES
+//VARIABLES
 var list;
 var extensionlessFname;
 var extension;
 dbug = true;
 dbug = false;
-dialogWidth = 151;
-dialogHeight = 315;
-dialogX = screenWidth() * 0.8 - dialogWidth;
-dialogY = screenHeight() * 0.8 - dialogHeight;
-currentDialogX = dialogX;
-currentDialogY = dialogY;
-
+var breakAfterCurrent = false;
+var dialogWidth = 175;
+var dialogHeight = 353;
+var dialogX = screenWidth * 0.9 - dialogWidth;
+var dialogY = screenHeight * 0.75 - dialogHeight - 100;
 
 // INPUT-OUTPUT
 dir1 = getDirectory("Select the directory containing the nuclei to analyse");
@@ -58,7 +56,8 @@ if (list.length<1) {
 if (!File.exists(dir1+"//done"))
 	File.makeDirectory(dir1+"done");
 
-for (i=0; i<list.length; i++) {// PROCESS TIFF FILES
+for (i=0; i<list.length; i++) {//PROCESS TIFF FILES
+	if (breakAfterCurrent) return;
 	extension = substring(list[i], lastIndexOf(list[i], "."));
 	path=dir1+list[i];
 	open(path); id = getImageID();
@@ -78,10 +77,11 @@ for (i=0; i<list.length; i++) {// PROCESS TIFF FILES
 	zoom = 400;
 	getLocationAndSize(x, y, width, height);
 	//print("x = "+x + "  y = "+y + "  width = "+width + "  height = "+height);
-	if (width*4>screenWidth || height*4>screenHeight) zoom=300;
-	if (width*3>screenWidth || height*3>screenHeight) zoom=200;
-	if (width*2>screenWidth || height*2>screenHeight) zoom=150;
-	if (width*1.5>screenWidth || height*1.5>screenHeight) zoom=100;
+	W = dialogX-50; H = screenHeight;
+	if (width*4>W || height*4>H) zoom=300;
+	if (width*3>W || height*3>H) zoom=200;
+	if (width*2>W || height*2>H) zoom=150;
+	if (width*1.5>W || height*1.5>H) zoom=100;
 	//print("zoom = "+zoom);
 	run("Set... ", "zoom="+zoom);
 	resetMinAndMax();
@@ -89,14 +89,8 @@ for (i=0; i<list.length; i++) {// PROCESS TIFF FILES
 	getLocationAndSize(x, y, width, height);
 	x2 = dialogX - width - 50;
 	y2 = dialogY - height - 50;
-	if (x2<0) {
-		currentDialogX = dialogX - x2;
-		x2 = 0;
-	}
-	if (y2<200) {
-		currentDialogY = dialogY - 200;
-		y2 = 200;
-	}
+	if (x2<0) x2 = 0;
+	if (y2<200) y2 = 200;
 	setLocation(x2, y2);
 	run("Set... ", "zoom="+zoom/2);//forces zoom actualization
 	run("Set... ", "zoom="+zoom);
@@ -159,36 +153,39 @@ function channelMontage(imageid) {
 	}
 	setBatchMode(false);
 	run("Select None");
-
+	longestMarkerIndex = 0;
+	maxStrW = getStringWidth(markers[0]);
+	for (i=1; i<markers.length; i++) {
+		strW = getStringWidth(markers[i]);
+		if (strW>maxStrW) {
+			maxStrW = strW;
+			longestMarkerIndex = i;
+		}
+	}
 	fontSize = 12;
 	setFont("SansSerif", fontSize, " antialiased");
-	strW = getStringWidth(markers[0]);
+	strW = getStringWidth(markers[longestMarkerIndex]);
 	if (strW>=width-2) {
 		iter = 0;
-		while (getStringWidth(markers[0])>width-2 && iter<12) {
+		while (getStringWidth(markers[longestMarkerIndex])>width-2 && iter<12) {
 			setFont("SansSerif", --fontSize, " antialiased");
 			iter++;
 		}
 	}
 	else if (strW<width-0) {
 		iter = 0;
-		while (getStringWidth(markers[0])>width-0 && iter<36) {
+		while (getStringWidth(markers[longestMarkerIndex])>width-0 && iter<36) {
 			setFont("SansSerif", ++fontSize, " antialiased");
 			iter++;
 		}
 	}
-	fh = getValue("font.height");
-	setColor(channelColors[0]);
-	Overlay.drawString(markers[0], 2, height*2.5+fh/2);//text, x, y
-	setColor(channelColors[1]);
-	strW = getStringWidth(markers[1]);
-	Overlay.drawString(markers[1], 2+width+(width-strW)/2, height*2.5+fh/2);
-	setColor(channelColors[2]);
-	strW = getStringWidth(markers[2]);
-	Overlay.drawString(markers[2], 2+width*2+(width-strW)/2, height*2.5+fh/2);
-	setColor(channelColors[3]);
-	strW = getStringWidth(markers[3]);
-	Overlay.drawString(markers[3], 2+width*3+(width-strW)/2, height*2.5+fh/2);
+	strY = height*2.5+getValue("font.height")/2;
+	for (i=0; i<markers.length; i++) {
+		setColor(channelColors[i]);
+		strW = getStringWidth(markers[i]);
+		Overlay.drawString(markers[i],
+				width*i + (width-getStringWidth(markers[i]))/2, strY);
+	}
 	Overlay.show();
 	return true;
 }
@@ -207,9 +204,11 @@ function keepTIFFs(files) {
 function classifyNuclei(fileName) {
 	Dialog.createNonBlocking("Classify nuclei");
 	Dialog.addRadioButtonGroup("Stages", stages, 8, 1, "Unclassified");
-	Dialog.setLocation(currentDialogX, currentDialogY);
-	Dialog.show;//must click OK, return doesn't work
+	Dialog.addCheckbox("Break after current", breakAfterCurrent);
+	Dialog.setLocation(dialogX, dialogY);
+	Dialog.show;//click OK; return doesn't work if Dialog has component groups
 	class = Dialog.getRadioButton;
+	breakAfterCurrent = Dialog.getCheckbox();
 	str = fileName+"_CLASS_"+class;
 	if (File.exists(dir1+"classification.txt"))
 		File.append(fileName+"\t"+class+"\r\n", dir1+"classification.txt");
