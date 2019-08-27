@@ -35,9 +35,9 @@
  *   One could expect that w1 corresponds to lambda1 and w2 to lambda2, but
  *   w1 may correspond to lambda2 and w2 to lambda1, depending on the
  *   configuration of Metamorph.
- *   The dual channel separator (a space in the example) may be another
- *   character, for instance "-", depending on how dual camera illuminations
- *   have been named in Metamorph.
+ *   The dual channel separator (a space character in the example) may be
+ *   different, for instance a "-", depending on how dual camera illumination
+ *   settings have been named in Metamorph.
  *   Dual channel order and separator are managed by the macro but are
  *   assumed to be the same for all series in a given folder.
  *   If the dual channel colors attribution fails, arbitrary (probably 
@@ -46,6 +46,10 @@
  *
  * ¤ Output images are X, Y, Z and T calibrated if calibration data are
  *   available.
+ *
+ * ¤ Allows control of z-range and time-range of input files.
+ *
+ * ¤ Does optional resizing or croping of input files.
  *
  * ¤ Does optional maximum z-projection of input files and color balance of
  *   output files.
@@ -62,7 +66,7 @@
  *
  * Known problems:
  *
- * ¤ Temporal calibration fails if timelapse crosses year.
+ * ¤ Temporal calibration fails if timelapse crosses new year.
  *   --o-> frame interval = 0 or is false
  *
  * ¤ Channels handling dialog boxes may be larger than screen if the
@@ -81,17 +85,24 @@
 
 //TODO
 /*
- * si z = 1 a nSlices : utiliser open, ne pas ouvrir les slices 1 par 1 (lent)
+ * si z = [1, nSlices] : utiliser open, ne pas ouvrir les slices 1 par 1 (lent)
  * egalement si z = nSlices a 1, puis reverseStack
  * 
- * bug si on n'utilise pas le premier canal w1 (decale tout vers w1)
+ * Si z-range < nSlices/2 : ouvrir par open(path) et supprimer les slices non
+ * voulus
  * 
  * utiliser .nd pour remplacer s1, s2 etc par les noms des positions
+ * 
+ * Jusqu'ici, les noms des fichiers manquants sont ecrits dans les pixels de
+ * l'image noire de remplacement. Problemes si Resize ou Crop. Il faut faire
+ * l'écriture apres resize ou crop
+ * Pour les ecrire dans l'overlay, il faut reecrire la
+ * procedure (stocker les noms des fichiers et la position C, T dans l'hyperstack)
  */
 
 var dBug = false;
 var macroName = "MetamorphFilesFolderToHyperstacks";
-var version = "43p";
+var version = "43q";
 var author = "Author: Marcel Boeglin 2018-2019";
 var msg = macroName+"\nVersion: "+version+"\n"+author;
 var info = "Created by "+macroName+"\n"+author+"\nE-mail: boeglin@igbmc.fr";
@@ -113,8 +124,7 @@ var projectionTypes = newArray(
 var colors = newArray("Red", "Green", "Blue", "Grays",
 			"Cyan", "Magenta", "Yellow");
 
-
-///////////////////////////////////////////////////////////
+//_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
 //To change dialog defaults, modify variables below:
 
 //Add your channel determinants to arrays below to auto-assign color.
@@ -169,6 +179,10 @@ var calibrationOptions = newArray("Don't calibrate anything",
 		"Same calibrations for all series",
 		"Different calibrations for each series",
 		"Get calibration from metadata");
+var calibrationOptions = newArray("Don't calibrate anything", 
+		"Same calibrations for all series",
+		"Different calibrations for each series",
+		"Get calibration from metadata");
 
 var XYCalibrations, ZCalibrations, TimeIntervals;
 var XYZUnits, TUnits;
@@ -194,6 +208,9 @@ var noChannelDependentBinning = true;
 var doZproj = true;
 var doZprojsByDefault = true;
 
+/**add missing files infos to overlay, else grab into pixels*/
+var addToOverlay = true;
+
 var displayDataReductionDialog = false;
 
 //since 43h
@@ -206,21 +223,20 @@ var cropAtImport = false;
 var roiX, roiY, roiW, roiH;
 var rectangleFromMacroCommand = false;
 
-var firstSlice = 1, lastSlice = -1;
+var firstSlice=1, lastSlice=-1;
 var doRangeArroundMedianSlice = false;
 var rangeArroundMedianSlice = 50; // % of stack-size
 
 var firstTimePoint=1, lastTimePoint=-1;//-1 means until nTimePoints
 var doRangeFrom_t1 = false;
-var rangeFrom_t1 = 50; // % of nTimePoints
+var rangeFrom_t1 = 50; //% of nTimePoints
 
 var to32Bit = false;
 
 var oneOutputFilePerTimePoint = false;
 var createFolderForEachOutputSeries = false;
 //End of variables to be changed to modify dialog defaults.
-///////////////////////////////////////////////////////////
-
+//_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
 
 //Since 41j :
 //Variables tableaux 2D pour chaque serie sous forme de chaines de caracteres
@@ -322,7 +338,7 @@ var seriesChannelGroups;
 var channelSequencesColors;
 var channelSequencesSaturations;
 
-
+var startImgNumber = nImages;
 var fileFilter = "";
 var excludingFilter = "";
 var channelSuffix = "_w";
@@ -801,15 +817,26 @@ function dualCameraDialog2() {
 	dualChannelSeparator = Dialog.getString();
 }
 
-
+var realObjective, declaredObjective;
+var doPixelSizeCorrection = false;
+var pixelSizeCorrection = 1.0;
 
 function fileFilterAndCalibrationParamsDialog() {
 	Dialog.create(macroName);
 	Dialog.addString("Process Filenames containing", fileFilter);
 	Dialog.addString("Exclude Filenames containing", excludingFilter);
+	choices = newArray("Add to Overlay", "Grab in pixels");
+	Dialog.addChoice("Missing files infos",choices, "Add to Overlay");
 	Dialog.addCheckbox("No series have channel-dependent binning",
 			noChannelDependentBinning);
 	Dialog.addCheckbox("Display series choice dialog", letMeChooseSeries);
+	msg = "Pixel-size from Metadata correction if badly declared objective:";
+	Dialog.addMessage(msg);
+	items = newArray("", "0.5", "1", "1.25", "1.6", "2", "2.5", "4", "5",
+			"10", "20", "25", "40", "50", "60", "63", "100", "125", "150");
+	Dialog.addChoice("Real objective", items, "");
+	Dialog.addChoice("Declared objective", items, "");
+	Dialog.addMessage("Same correction will be applied to all series!");
 	Dialog.addMessage("If no xy-z calibration found,"+
 			" use following for all series:");
 	Dialog.addNumber("Pixel size", 1);
@@ -842,8 +869,13 @@ function fileFilterAndCalibrationParamsDialog() {
 	Dialog.show();
 	fileFilter = Dialog.getString();
 	excludingFilter = Dialog.getString();
+	addToOverlay = (Dialog.getChoice()=="Add to Overlay");
 	noChannelDependentBinning = Dialog.getCheckbox();
 	letMeChooseSeries = Dialog.getCheckbox();
+
+	realObjective = Dialog.getChoice();
+	declaredObjective = Dialog.getChoice();
+
 	userPixelSize = Dialog.getNumber();
 	userVoxelDepth = Dialog.getNumber();
 	userLengthUnit = Dialog.getChoice();
@@ -857,14 +889,15 @@ function fileFilterAndCalibrationParamsDialog() {
 		oneOutputFilePerTimePoint = Dialog.getCheckbox();
 		ignoreSingleTimepointChannels = Dialog.getCheckbox();
 //	}
-
-	print("userFrameInterval = "+userFrameInterval);
-	print("userTUnit = "+userTUnit);
-	/*
+/*
 	print("createFolderForEachOutputSeries = "+createFolderForEachOutputSeries);
-	*/
-	print("oneOutputFilePerTimePoint = "+oneOutputFilePerTimePoint);
-	print("ignoreSingleTimepointChannels = "+ignoreSingleTimepointChannels);
+*/
+	if (realObjective!="" && declaredObjective!="" &&
+			realObjective!=declaredObjective) {
+		doPixelSizeCorrection = true;
+		pixelSizeCorrection = parseFloat(declaredObjective)/
+				parseFloat(realObjective);
+	}
 }
 
 function dataReductionDialog() {
@@ -875,7 +908,6 @@ function dataReductionDialog() {
 	Dialog.addCheckbox("Resize at import", resizeAtImport);
 	Dialog.addNumber("Resize factor", resizeFactor);
 
-	Dialog.addMessage("");
 	Dialog.addChoice("Crop-roi", cropOptions);
 	Dialog.addMessage("From Roi Manager: \nyou should have added at least one "+
 			"roi to the manager\nand selected the one to be used. "+
@@ -891,8 +923,7 @@ function dataReductionDialog() {
 	Dialog.addString("Macro command", "");
 
 	//Reintroduced in 43g
-	Dialog.addMessage("");
-	Dialog.addMessage("Z series:");
+	Dialog.addMessage("Z-series:");
 	Dialog.addNumber("firstSlice", firstSlice, 0, 4,
 			"-1 means nSlices whatever stack-size");
 	Dialog.addNumber("lastSlice", lastSlice, 0, 4,
@@ -903,7 +934,7 @@ function dataReductionDialog() {
 	Dialog.addNumber("Range", rangeArroundMedianSlice, 0, 4,
 			"% of stack-size; < 0 to reverse stack");
 
-
+	Dialog.addMessage("Time-series:");
 	Dialog.addNumber("firstTimePoint", firstTimePoint, 0, 4,
 			"");
 	Dialog.addNumber("lastTimePoint", lastTimePoint, 0, 4,
@@ -986,10 +1017,10 @@ function channelGroupsHandlingDialog() {
 	for (i=0; i<seriesWithSameChannels.length; i++) {
 	 	seriesnames = toArray(seriesWithSameChannels[i], ",");
 		if (i>0) Dialog.addMessage("");
-		Dialog.addChoice("Channel group "+i+"", seriesnames);
+		Dialog.addChoice("Channel group "+i+" : contains", seriesnames);
 		Dialog.addToSameRow();
-		Dialog.addMessage("(for information)");
-	 	Dialog.addToSameRow();//marche pas apres addCheckboxGroup
+		//Dialog.addMessage("(for information)");
+	 	//Dialog.addToSameRow();//marche pas apres addCheckboxGroup
 	 	Dialog.addCheckbox("Do Z-projections", doZprojsByDefault);
 
 	 	channelSeq = channelSequences[i];
@@ -1435,6 +1466,11 @@ function printParams() {//TODO: add missing params
 	print("Input dir: "+dir1);
 	print("Ouput dir: "+dir2);
 	print("fileFilter = "+"\""+fileFilter+"\"");
+
+	print("realObjective = "+realObjective);
+	print("declaredObjective = "+declaredObjective);
+	print("doPixelSizeCorrection = "+doPixelSizeCorrection);
+	print("pixelSizeCorrection = "+pixelSizeCorrection);
 
 	print("userPixelSize = "+userPixelSize);
 	print("userVoxelDepth = "+userVoxelDepth);
@@ -2458,26 +2494,6 @@ function computeColorIndexes(chns, outputColors) {
 }
 
 
-function computeColorIndexes_OLD(chns, outputColors) {
-	print("\ncomputeColorIndexes(chns, outputColors):");
-	for (i=0; i<chns.length; i++) {
-		print("chns["+i+"] = "+chns[i]);
-		print("outputColors["+i+"] = "+outputColors[i]);
-	}
-	nchn = chns.length;
-	clrIndexes = newArray(nchn);
-	for (i=0; i<nchn; i++) {
-		for (j=0; j<chns.length; j++) {
-			if (chns[i]==chns[j]) {
-				clrIndexes[i] = colorIndex(outputColors[j]);
-				break;
-			}
-		}
-	}
-	return clrIndexes;
-}
-
-
 //to manage colors for each series independently
 function getChannelColorIndexesSeriesBySeries(imageList) {
 	//complicated because no 2D arrays in IJ macro language
@@ -2984,7 +3000,6 @@ function processFolder() {
 	//isseiesFilter = isSeriesFilter(fF);
 	//print("isseiesFilter = "+isseiesFilter);
 	positionIndex3 = 0;
-	firstTime = true;//demande une seule fois pour tout le run
 	for (i=0; i<seriesNames.length; i++) {
 		initializeMetadata();
 		voxelDepth = userVoxelDepth;
@@ -3064,10 +3079,6 @@ function processFolder() {
 		}
 
 		channelColorIndexes = computeColorIndexes(channels, seiesColors);
-
-// ICI ICI ICI ICI ICI ICI ICI ICI ICI ICI ICI ICI ICI ICI ICI ICI ICI ICI
-// BUG sur les couleurs des canaux: resolu dans 43p
-
 		compositeStrs = newArray(nChannels);//ancien
 		//compositeStrs = newArray(allChannels.length);
 
@@ -3215,6 +3226,17 @@ function processFolder() {
 			timeRange = stopT - startT;
 			print("timeRange = "+timeRange);
 			tt = 0;
+
+
+			expectedNFiles = nChannels*(stopT-startT+1);//A VERIFIER
+			missingFilenames = newArray(expectedNFiles);
+			missingChannels = newArray(expectedNFiles);
+			missingTimepoints = newArray(expectedNFiles);
+			//addToOverlay = false;
+			//addToOverlay = true;
+			missingFileIndex = 0;
+
+
 			for (t=startT; t<=stopT; t++) {
 				if (istimeseries) {
 					str4 = "_t" + t;
@@ -3260,56 +3282,27 @@ function processFolder() {
 					path = dir1+fn;
 					if (dbg) print(""+fn);
 					doResize = false;
+
+					startSlice = 1;
+					stopSlice = numberOfPlanes;
 					if (!File.exists(path)) {
+						missingFilenames[missingFileIndex] = fn;
+						missingChannels[missingFileIndex] = c;
+						missingTimepoints[missingFileIndex] = tt;//t ?
+						missingFileIndex++;
 						error = "Cannot find file\n"+dir1+"\n"+fn;
 						print(error);
-						firstTime = false;
-						print("Creating black image to replace missing one");
+						print("Replacing with black");
 						width = maxImageWidhs[i];
 						height = maxImageHeights[i];
 						depth = maxImageDepths[i];
 				//		width = imageWidhs[i];
 				//		height = imageHeights[i];
-						//print("width = "+width+"     height = "+height);
 						print("width="+width+" height="+height+" depth="+depth);
 						//newImage("", type, width, height,
 						//		nchannels, depth, nframes);
-						//allChannels.length
 						if (doZprojs) depth = 1;
 						newImage("", type+" black", width, height, depth);
-						//newImage("", type, width, height,
-						//		allChannels.length, depth, nFrames); //false
-						print("black image: w="+getWidth()+"  h="+getHeight()+
-									"  depth="+nSlices);
-						fontSize = 12;
-						setFont("SanSerif", fontSize, "Bold");
-						texts = newArray(5);
-						texts[0] = "FILE NOT FOUND";
-						texts[1] = "Input dir:";
-						texts[2] = dir1;
-						texts[3] = "Filename:";
-						texts[4] = fn;
-						textWidth = 0;
-						textWidths = newArray(5);
-						for (k=0; k<texts.length; k++) {
-							textWidths[k] = getStringWidth(texts[k]);
-						}
-						for (k=0; k<texts.length; k++) {
-							if (textWidths[k]>textWidth)
-								textWidth = textWidths[k];
-						}
-						factor = width*0.97/textWidth;
-						fontSize *= factor;
-						setFont("SanSerif", fontSize, "Bold");
-						//if (doZproj) depth=1;//pb if avg
-						for (z=1; z<=depth; z++) {
-							for (k=0; k<texts.length; k++) {
-								setSlice(z);
-								drawString(texts[k],
-										1+(width-textWidths[k]*factor)/2,
-										(k+1)*(height-10)/5);
-							}
-						}
 					}
 					else {
 						if (t==startT && (c==0 || c==1)) {
@@ -3328,8 +3321,8 @@ function processFolder() {
 							}
 						}
 						print("numberOfPlanes = "+numberOfPlanes);
-						startSlice = 1;
-						stopSlice = numberOfPlanes;
+						//startSlice = 1;
+						//stopSlice = numberOfPlanes;
 						if (dbg) print("firstSlice = "+firstSlice);
 						if (dbg) print("lastSlice = "+lastSlice);
 
@@ -3369,7 +3362,7 @@ function processFolder() {
 						if (true) print("stopSlice = "+stopSlice);
 						if (true) print("slices = "+slices);
 
-						IJ.redirectErrorMessages();
+				//		IJ.redirectErrorMessages();//unecessary
 						if (slices==numberOfPlanes) {
 							open(path);
 							if (startSlice==numberOfPlanes &&
@@ -3581,8 +3574,9 @@ function processFolder() {
 				if (nimg>1) {
 					//! binning may be different for each channel
 					IJ.redirectErrorMessages();
-					run("Merge Channels...", channelsStr+" create");
-					nimg--;
+					run("Merge Channels...", channelsStr+" create");//ok
+					//nimg--;
+					nimg -= nChannels - 1;
 				}
 				else {
 					print("c = "+c);
@@ -3644,6 +3638,18 @@ function processFolder() {
 							//print("1ere occurence : outdir = "+outdir);
 							File.makeDirectory(outdir);
 						}
+
+						missingFilenames = Array.trim(missingFilenames,
+								missingFileIndex);
+						missingChannels = Array.trim(missingChannels,
+								missingFileIndex);
+						missingTimepoints = Array.trim(missingTimepoints,
+								missingFileIndex);
+						imgID = getImageID();
+						addMissingFilesInfos(imgID, dir1, missingFilenames,
+								missingChannels, missingTimepoints, 
+								seiesColors, addToOverlay);
+
 						saveAs("tiff", outdir+outname+".tif");
 						if( nImages>0) close();
 						selectWindow("Log");
@@ -3675,6 +3681,10 @@ function processFolder() {
 				if (resizeAtImport && resizeFactor!=1) {
 					voxelWidth /= resizeFactor;
 					voxelHeight /= resizeFactor;
+				}
+				if (doPixelSizeCorrection && pixelSizeCorrection!=1) {
+					voxelWidth *= pixelSizeCorrection;
+					voxelHeight *= pixelSizeCorrection;
 				}
 				setVoxelSize(voxelWidth, voxelHeight, voxelDepth, xyUnit);
 				//ImageJ uses same spatial calibration unit for x, y and z
@@ -3772,6 +3782,17 @@ function processFolder() {
 				//print("2eme occurence : outdir = "+outdir);
 				File.makeDirectory(outdir);
 			}
+
+
+
+			missingFilenames = Array.trim(missingFilenames, missingFileIndex);
+			missingChannels = Array.trim(missingChannels, missingFileIndex);
+			missingTimepoints = Array.trim(missingTimepoints, missingFileIndex);
+			imgID = getImageID();
+			addMissingFilesInfos(imgID, dir1, missingFilenames, missingChannels,
+				missingTimepoints, seiesColors, addToOverlay);
+
+
 			saveAs("tiff", outdir+outname+".tif");
 /*
 			if (istimeseries && isTimeFilter(fF))
@@ -3780,6 +3801,7 @@ function processFolder() {
 				saveAs("tiff", dir2+str1+str3+".tif");
 */
 			close();
+			if (nImages>startImgNumber) close();
 			selectWindow("Log");
 			saveAs("Text", dir2+"Log.txt");
 		}//end position j
@@ -3790,6 +3812,81 @@ function processFolder() {
 	setBatchMode(false);
 }//end processFolder()
 
+/** 
+ * @imgID the image to which add missing files informations
+ * @foldername the parth of input folder
+ * @missingFilenames the array of names of missing images
+ * @missingChannels the array from which get the channel of each missing image
+ * @missingTimepoints the array from which get the frame of each missing image
+ * @seiesColors channel colors array for imgID
+ * @addToOverlay write infos in Overlay if true, grab in pixels otherwise */
+function addMissingFilesInfos(
+		imgID,
+		foldername,
+		missingFilenames,
+		missingChannels,
+		missingTimepoints,
+		seiesColors,
+		addToOverlay) {
+	nfs = missingFilenames.length;
+	ncs = missingChannels.length;
+	nts = missingTimepoints.length;
+	if (nfs!=ncs || ncs!=nts || nts!=nfs) return;
+	//print("nfs = "+nfs);
+	id = getImageID();
+	selectImage(imgID);
+	Stack.getDimensions(w, h, chns, slices, frames);
+	texts = newArray(5);
+	texts[0] = "FILE NOT FOUND";
+	texts[1] = "Input dir:";
+	texts[2] = foldername;
+	texts[3] = "Filename:";
+	textWidths = newArray(5);
+	if (!addToOverlay) setColor("white");//necessaire
+	setColor("white");
+	for (i=0; i<nfs; i++) {
+		chn = missingChannels[i]+1;
+		tpoint = missingTimepoints[i];
+		fontSize = 12;
+		setFont("SanSerif", fontSize, "Bold");
+		texts[4] = missingFilenames[i];
+		textWidth = 0;
+		for (k=0; k<texts.length; k++)
+			textWidths[k] = getStringWidth(texts[k]);
+		for (k=0; k<texts.length; k++)
+			if (textWidths[k]>textWidth) textWidth = textWidths[k];
+		factor = width*0.97/textWidth;
+		fontSize *= factor;
+		//print("fontSize = "+fontSize);
+		setFont("SanSerif", fontSize, "Bold");
+		if (!addToOverlay) {
+			Stack.setChannel(chn);
+			Stack.setFrame(tpoint);
+		}
+		//print("drawString(): "+texts[k]+" x="+x+" y="+y);
+		for (k=0; k<texts.length; k++) {
+			x=1+(width-textWidths[k]*factor)/2;
+			y=(k+1)*(height-10)/5;
+			for (z=1; z<=slices; z++) {
+				if (addToOverlay) {
+					clr = seiesColors[chn-1];
+					//print("clr = "+clr);
+					setColor(clr);
+					Overlay.drawString(texts[k], x, y);
+					//Overlay.setPosition(chn, z, tpoint);
+					Overlay.setPosition(chn, 0, tpoint);
+					//without next statement, text is not added to Overlay!
+					Overlay.show;
+				}
+				else {
+					Stack.setSlice(z);
+					drawString(texts[k], x, y);//grab in pixels
+				}
+			}
+		}
+	}
+	selectImage(id);
+}
 
 /** Returns LUT derived from illumSettingfound in Metadata
  * This method is used to assign channel color of images for which  wavelength
