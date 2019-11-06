@@ -1,6 +1,6 @@
 /**
  * macro "MetamorphFilesFolderToHyperstacks_"
- * Author : Marcel Boeglin, July 2018 - September 2019
+ * Author : Marcel Boeglin, July 2018 - October 2019
  * e-mail: boeglin@igbmc.fr
  * 
  * ¤ Opens Metamorph multi-position time-series z-stacks of up to 7 channels
@@ -80,17 +80,14 @@
 
 //TODO
 /* Si z-range < nSlices/2 : ouvrir par open(path) et supprimer les slices non
- * voulus car ouvrir slice par slice est bcp lus long qu'ouvrir toute la pile.
+ * voulus car ouvrir slice par slice est bcp plus long qu'ouvrir toute la pile.
  * Utiliser .nd pour remplacer s1, s2 etc par les noms des positions
- *
- * Permettre une Crop-ROI par position pour une serie a choisir par l'utilisateur
- * ou par serie si non-multi-position (plus problematique)
-*/
+ */
 
 
 var dBug = false;
 var macroName = "MetamorphFilesFolderToHyperstacks";
-var version = "43s";
+var version = "43t";
 var author = "Author: Marcel Boeglin 2018-2019";
 var msg = macroName+"\nVersion: "+version+"\n"+author;
 var info = "Created by "+macroName+"\n"+author+"\nE-mail: boeglin@igbmc.fr";
@@ -201,15 +198,15 @@ var displayDataReductionDialog = false;
 var resizeAtImport = false;
 var resizeFactor = 0.5;
 
-var cropOptions = newArray("None", "From macro-command", "From Roi Manager");
-var cropOption = "None";
+var seriesToCrop;
 var cropAtImport = false;
+var roisFromImages = false;
+var roisFromManager = false;
 var roiX, roiY, roiW, roiH;
-var rectangleFromMacroCommand = false;
 
 var firstSlice=1, lastSlice=-1;
-var doRangeArroundMedianSlice = false;
-var rangeArroundMedianSlice = 50; // % of stack-size
+var doRangeAroundMedianSlice = false;
+var rangeAroundMedianSlice = 50; // % of stack-size
 
 var firstTimePoint=1, lastTimePoint=-1;//-1 means until nTimePoints
 var doRangeFrom_t1 = false;
@@ -478,7 +475,7 @@ function execute() {
 	dualCameraDialog2();
 	fileFilterAndCalibrationParamsDialog();
 
-	if (displayDataReductionDialog) dataReductionDialog();
+//	if (displayDataReductionDialog) dataReductionDialog();
 
 	pluginsDir = getDirectory("plugins");
 	tiff_tags_plugin_installed = findFile(pluginsDir, "tiff_tags.jar");
@@ -497,13 +494,25 @@ function execute() {
 
 	seriesNames = getSeriesNames(list);
 	//print("execute() : nSeries = "+nSeries);
+
+
+	if (displayDataReductionDialog) dataReductionDialog();
+
+	if (cropAtImport && roisFromManager) {
+		list = filterList(list, seriesToCrop, "");
+		seriesNames = newArray(seriesToCrop);
+		nSeries = seriesNames.length;
+		//print("nSeries = "+nSeries);
+	}
+
 	doSeries = newArray(nSeries);
 	for (i=0; i<nSeries; i++) doSeries[i] = true;
 	//doSeries[0] = true;
 	if (nSeries>1 && letMeChooseSeries) {
 		displaySeriesNamesDialog();
 	}
-	list = reduceListToSelectedSeries(list);
+	if (nSeries>1)
+		list = reduceListToSelectedSeries(list);
 	nSeries = seriesNames.length;
 
 	print("\nSelected series (seriesNames filtered by seriesNames):");
@@ -776,7 +785,7 @@ var doPixelSizeCorrection = false;
 var pixelSizeCorrection = 1.0;
 
 function fileFilterAndCalibrationParamsDialog() {
-	Dialog.create(macroName);
+	Dialog.create(macroName+"  -  Main Dialog");
 	Dialog.addString("Process Filenames containing", fileFilter);
 	Dialog.addString("Exclude Filenames  containing", excludingFilter);
 	choices = newArray("Add to Overlay", "Grab in pixels");
@@ -855,32 +864,31 @@ function fileFilterAndCalibrationParamsDialog() {
 }
 
 function dataReductionDialog() {
-	cropAtImport = false;
-	macroCommand = "";
 	Dialog.create(macroName+" - Data Reduction");
-	//Dialog.addMessage("Data Reduction:");
+	Dialog.addMessage("Data Reduction:");
 	Dialog.addCheckbox("Resize at import", resizeAtImport);
 	Dialog.addNumber("Resize factor", resizeFactor);
-
-	Dialog.addChoice("Crop-roi", cropOptions);
-	Dialog.addMessage("From Roi Manager: "+
-			"\nUsed Roi: the selected one."+
-			"\n- if no Roi selected: 1st one. "+
-			"\n- if several Rois selected: 1st selected one."+
-			"\n- if not a rectangle: its bounding rectangle."+
-			"");
-	Dialog.addMessage("From macro-command:\n"+
-			"Should look like: makeRectangle(x, y, width, height)\n"+
-			"Can be pasted from Recorder to the text field below.");
-	Dialog.addString("Macro command", "");
+	msg = "Crop at import:\n"+
+		"Needs an   rois-image   for each series and position  to be\n"+
+		"croped.\n"+
+		"Rois are retrieved from images in  'ImagesWithRois'\n"+
+		"subfolder of input folder.\n"+
+		"If  'Crop at import'  is checked and no rois-images exist, the\n"+
+		"macro aborts; \n"+
+		"otherwise, only series and positions for which rois-images\n"+
+		"are found are processed.\n"+
+		"";
+	Dialog.addMessage(msg);
+	Dialog.addCheckbox("Crop at import", cropAtImport);
+	Dialog.addCheckbox("Help for Crop at import", false);
 	Dialog.addMessage("Z-series:");
 	Dialog.addNumber("firstSlice", firstSlice, 0, 4,
 			"-1 for nSlices whatever stackSize");
 	Dialog.addNumber("lastSlice", lastSlice, 0, 4,
 			"-1 for nSlices whatever stackSize");
 	Dialog.addCheckbox("Process range around median slice",
-			doRangeArroundMedianSlice);
-	Dialog.addNumber("Range", rangeArroundMedianSlice, 0, 4,
+			doRangeAroundMedianSlice);
+	Dialog.addNumber("Range", rangeAroundMedianSlice, 0, 4,
 			"% of stackSize; <0: reverse stack");
 	Dialog.addMessage("Time-series:");
 	Dialog.addNumber("firstTimePoint", firstTimePoint, 0, 4,
@@ -898,60 +906,44 @@ function dataReductionDialog() {
 	resizeAtImport = Dialog.getCheckbox();
 	resizeFactor = Dialog.getNumber();
 	if (resizeFactor==0) resizeFactor = 1;
-	cropOption = Dialog.getChoice();
-	print("cropOption = "+cropOption);
-	macroCommand = Dialog.getString();
-	print("macroCommand = "+macroCommand);
-	if (cropOption=="From macro-command")
-		cropAtImport = getRoi(macroCommand);
-	else if (cropOption=="From Roi Manager")
-		cropAtImport = getRoiFromManager();
+
+	cropAtImport = Dialog.getCheckbox();
+	if (cropAtImport) {
+		File.makeDirectory(dir1+"ImagesWithRois");
+	}
+	//help = Dialog.getCheckbox();
+	if (Dialog.getCheckbox()) {
+		msg = "Any rois-image in  ImagesWithRois  folder must be a copy\n"+
+			"of an iput image of the series or position to be croped.\n \n"+
+			"If you did a Maximum projection of the copy, remove the\n"+
+			"prefix 'MAX_' added by ImageJ to the name before saving to\n"+
+			"the  ImagesWithRois  folder.\n \n"+
+			"To add the rois to the Overlay of an image: \n"+
+			"  - draw an roi, type Ctrl b\n"+
+			"  - draw another roi or change its location, type Ctrl b\n"+
+			"  - and so on until all crop-regions are done for the series or\n"+
+			"    position\n"+
+			"Do this for one image of each series or position to be croped.\n"+
+			"";
+		showMessage(msg);
+	}
+	roisFromImages = true;
+/*
+	if (cropAtImport && roisFromImages) {
+		if (!File.exists(dir1+"ImagesWithRois")) {
+			exit("Input dir must have a subdir named ImagesWithRois\n"+
+				"with images having Rois in Overlay.\n");
+		}
+	}
+*/
 	firstSlice = Dialog.getNumber();
 	lastSlice = Dialog.getNumber();
-	doRangeArroundMedianSlice = Dialog.getCheckbox();
-	rangeArroundMedianSlice = Dialog.getNumber();// % of stack-size
+	doRangeAroundMedianSlice = Dialog.getCheckbox();
+	rangeAroundMedianSlice = Dialog.getNumber();// % of stack-size
 	firstTimePoint = Dialog.getNumber();
 	lastTimePoint = Dialog.getNumber();
 	doRangeFrom_t1 = Dialog.getCheckbox();
 	rangeFrom_t1 = Dialog.getNumber();
-}
-
-function getRoiFromManager() {
-	if (roiManager("count")<1) return false;
-	index = roiManager("index");
-	if (index==-1) index = 0;
-	newImage("Untitled", "8-bit black", 2048, 2048, 1);
-	roiManager("select", index);
-	getSelectionBounds(roiX, roiY, roiW, roiH);
-	close();
-	return true;
-}
-
-function getRoi(macroCmd) {
-	dbg = false;
-	if (!startsWith(macroCommand, "makeRectangle(")) return false;
-	rectangleFromMacroCommand = true;
-	str = substring(macroCommand, indexOf(macroCommand, "(")+1);
-	if (dbg) print("str = "+str);
-	if (indexOf(str, ")")>0)
-		str = substring(str, 0, indexOf(str, ")"));
-	if (dbg) print("str = "+str);
-	XYWH = split(str, ",");
-	for (i=0; i<XYWH.length; i++) print("XYWH["+i+"] = "+ XYWH[i]);
-	if (XYWH.length != 4) return false;
-	roiX = XYWH[0];
-	while (startsWith(roiX, " "))
-		roiX = substring(roiX, 1);
-	roiY = XYWH[1];
-	while (startsWith(roiY, " "))
-		roiY = substring(roiY, 1);
-	roiW = XYWH[2];
-	while (startsWith(roiW, " "))
-		roiW = substring(roiW, 1);
-	roiH = XYWH[3];
-	while (startsWith(roiH, " "))
-		roiH = substring(roiH, 1);
-	return true;
 }
 
 /** Display may be incomplete if many channel groups with many channels */
@@ -1429,11 +1421,6 @@ function printParams() {//TODO: add missing params
 	print("userTUnit = "+userTUnit);
 
 	print("cropAtImport = "+cropAtImport);
-	print("rectangleFromMacroCommand = "+rectangleFromMacroCommand);
-	print("roiX = "+roiX);
-	print("roiY = "+roiY);
-	print("roiW = "+roiW);
-	print("roiH = "+roiH);
 
 	print("resizeAtImport = "+resizeAtImport);
 	print("resizeFactor = "+resizeFactor);
@@ -1668,28 +1655,6 @@ function concatenateFileFilters(inclFilter, exclFilter) {
 	if (exclFilter!="" && exclFilter!=0)
 		str += "_exclude'"+exclFilter+"'";
 	return str;
-}
-
-function saveCropROI() {
-	if (nImages<1) newImage("", "8-bit", 100, 100, 1);
-	id = getImageID();
-	makeRectangle(roiX, roiY, roiW, roiH);
-	roiManager("Add");
-	count = roiManager("count");
-	if (count<1) return;
-	roiManager("Select", count-1);
-	str = concatenateFileFilters(fileFilter, excludingFilter);
-	roiManager("Save", dir2+"cropROI"+str+".roi");
-	roiManager("Delete");
-	count = roiManager("count");
-	if (count<1) {
-		selectWindow("ROI Manager");
-		run("Close");
-	}
-	if (id<0) {
-		selectImage(id);
-		close();
-	}
 }
 
 function getSeriesNameDelimiter(filename) {//end of series name
@@ -2981,6 +2946,59 @@ function extractValueAsString(tag, param) {
 //////////////////////////////////////////////////////////////////////////
 //End metadata processing
 
+
+/** adds ROIs from roiImage corresponding to current series and position
+ *  to ROI Manager.
+ * roiImages: list of filnames in folder dir1+"ImagesWithRois"
+ * seriesName: name of currently processed series
+ * channels: array of channel-strings of current series. channel-string may be ""
+ * position: name of currently processed position: "_s1", "_s2", etc
+ */
+function getRoisFromImage(roiImages, seriesName, channels, position) {
+	print(seriesName);
+	print("position = "+position);
+	projPrefixes = newArray("AVG_", "MAX_", "MIN_", "SUM_", "STD_", "MED_");
+	for (i=0; i<roiImages.length; i++) {
+		roiImage = roiImages[i];
+		print(roiImages[i]);
+		isProj = false;
+		prefixLessName = roiImage;
+		len = lengthOf(prefixLessName);
+		for (j=0; j<6; j++) {
+			if (startsWith(prefixLessName, projPrefixes[j])) {
+				prefixLessName = substring(prefixLessName, 4, len);
+				break;
+			}
+		}
+		if (!startsWith(prefixLessName, seriesName)) continue;
+		seriesLessName = substring(prefixLessName, lengthOf(seriesName), 
+				lengthOf(prefixLessName));
+		print("seriesLessName = "+seriesLessName);
+		for (j=0; j<channels.length; j++) {
+			print("channels["+j+"] = "+channels[j]);
+			channel = channels[j];
+			if (channel!="" && !startsWith(seriesLessName, channel))
+				continue;
+			channelLessName = substring(seriesLessName, lengthOf(channel),
+								lengthOf(seriesLessName));
+			print("channelLessName = "+channelLessName);
+			if (startsWith(channelLessName, position)) {
+				print(roiImages[i]);
+				open(dir1+"ImagesWithRois"+File.separator+roiImages[i]);
+				imgID = getImageID();
+				run("To ROI Manager");
+				selectImage(imgID);
+				close();
+				return true;
+				//break;//pour test. Utiliser return true;
+			}
+		}
+	}
+	return false;
+}
+//function getRoisFromImage(roiImages, seriesName, channels, position)
+
+
 function processFolder() {
 	dbg = false;
 	setBatchMode(true);
@@ -3003,6 +3021,11 @@ function processFolder() {
 	//isseiesFilter = isSeriesFilter(fF);
 	//print("isseiesFilter = "+isseiesFilter);
 	positionIndex3 = 0;
+
+	if (cropAtImport) {
+		roiImages = getFileList(dir1+"ImagesWithRois");
+	}
+
 	for (i=0; i<seriesNames.length; i++) {
 		print("\n \n ");
 		initializeMetadata();
@@ -3224,6 +3247,25 @@ function processFolder() {
 				//print("Processing position "+p);
 				//print("pp = "+pp);
 			}
+			nRois = 1;
+			if (cropAtImport && roisFromImages) {
+				getRoisFromImage(roiImages, seriesName, channels,
+						userPositionsSeriesBySeries[j]);
+				nRois = roiManager("count");
+			}
+
+			for (r=0; r<nRois; r++) {
+			//ouvre toutes les images C et T pour
+			//chaque roi et crop seleon roi.
+			//boucle sur r finit juste avant la fin de la boucle sur
+			//les positions (indice j)
+
+			//Il serait bcp plus rapide d'ovrir chaque image une seule 
+			//fois et de dupliquer le contenu de la Roi  mais inextricable 
+			//en raison du gd nb d'images ouvertes simultanement (il
+			//faudrait tableaux multidimensionnels d'imageID's).
+//Le contenu de la boucle sur r devrait etre decale d'un tab a droite
+
 			nslices = 1;
 			tt = 0;
 			expectedNFiles = nChannels*(stopT-startT+1);//A VERIFIER
@@ -3319,11 +3361,11 @@ function processFolder() {
 						//stopSlice = numberOfPlanes;
 						if (dbg) print("firstSlice = "+firstSlice);
 						if (dbg) print("lastSlice = "+lastSlice);
-						if (doRangeArroundMedianSlice) {
+						if (doRangeAroundMedianSlice) {
 							startSlice = numberOfPlanes/2 * 
-								(1 - rangeArroundMedianSlice/100);
+								(1 - rangeAroundMedianSlice/100);
 							stopSlice = numberOfPlanes/2 *
-								(1 + rangeArroundMedianSlice/100);
+								(1 + rangeAroundMedianSlice/100);
 							startSlice = floor(startSlice)-1;
 							stopSlice = floor(stopSlice)-1;
 						}
@@ -3411,9 +3453,27 @@ function processFolder() {
 						}
 					}
 					print("cropAtImport = "+cropAtImport);
-					if (cropAtImport) {
-						makeRectangle(roiX, roiY, roiW, roiH);
-						run("Crop");
+					if (cropAtImport && roisFromManager) {
+						roiManager("select", j);
+						Stack.getDimensions(width, height,
+											nchannels, depth, nframes);
+						Roi.getBounds(roiX, roiY, roiW, roiH);
+						if (roiW*roiH>0 && (roiW<width || roiH<height)) {
+							makeRectangle(roiX, roiY, roiW, roiH);
+							run("Crop");
+						}
+						roiManager("deselect");
+					}
+					if (cropAtImport&&roisFromImages&&roiManager("count")>0) {
+						roiManager("select", r);
+						Stack.getDimensions(width, height,
+											nchannels, depth, nframes);
+						Roi.getBounds(roiX, roiY, roiW, roiH);
+						if (roiW*roiH>0 && (roiW<width || roiH<height)) {
+							makeRectangle(roiX, roiY, roiW, roiH);
+							run("Crop");
+						}
+						roiManager("deselect");
 					}
 					if (resizeAtImport && resizeFactor!=1) {
 						Stack.getDimensions(w1, h1, nchn, nslices, frames);
@@ -3637,12 +3697,12 @@ function processFolder() {
 						saveAs("tiff", outdir+outname+".tif");
 						if( nImages>0) close();
 						saveLog();
-						if (cropAtImport) saveCropROI();
 						continue;
 					}
 				}
 				if (nImages==0) continue;
-			}
+			}//end loop over time t
+
 			if (nImages==0) continue;
 //			voxelDepth = userVoxelDepth;
 			getDimensions(ww, hh, nch, ns, nf);
@@ -3787,8 +3847,11 @@ function processFolder() {
 			//if (nImages>startImgNumber) close();
 			while (nImages>startImgNumber) close();
 			saveLog();
-			if (cropAtImport) saveCropROI();
+			}//end loop over crop-Rois
+			if (cropAtImport && roisFromImages) roiManager("reset");
 		}//end position j
+
+
 		positionIndex3 += positionNumbers[i];
 		printMetadata();
 	}//end series i
