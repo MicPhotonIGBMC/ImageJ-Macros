@@ -4,7 +4,8 @@
  * e-mail: boeglin@igbmc.fr
  * 
  * ¤ Opens Metamorph multi-position time-series z-stacks of up to 7 channels
- *   from input folder and saves them as hyperstacks to output folder.
+ *   from input folder
+ and saves them as hyperstacks to output folder.
  *
  * ¤ Only TIFF and STK files are processed.
  *
@@ -86,7 +87,8 @@
 
 
 var dBug = false;
-var macroName = "MetamorphFilesFolderToHyperstacks";
+
+var macroName = "MetamorphFilesFolderToHyperstacks";
 var version = "43t";
 var author = "Author: Marcel Boeglin 2018-2019";
 var msg = macroName+"\nVersion: "+version+"\n"+author;
@@ -490,11 +492,19 @@ function execute() {
 	//keep only TIFF & STK files matching fileFilter, not excludingFilter
 	list = filterList(list, fileFilter, excludingFilter);
 
+	nf = list.length;
 	list = removeSinglets(list);//from 43s
+	if (list.length==0) {
+		showMessage("No images to process after removeSinglets(list)");
+		exit();
+	}
+	if (list.length<nf) {
+		print("\nFile list after removeSinglets");
+		for (i=0; i<list.length; i++) print(list[i]);
+	}
 
 	seriesNames = getSeriesNames(list);
 	//print("execute() : nSeries = "+nSeries);
-
 
 	if (displayDataReductionDialog) dataReductionDialog();
 
@@ -968,6 +978,7 @@ function channelGroupsHandlingDialog() {
 	 	}
 	 	Dialog.addCheckboxGroup(1, chns.length, chns, defaults);
 	 	makeColorsDifferent = false;
+	 	//makeColorsDifferent = true;
 	 	chnColors = getChannelColors(chns, makeColorsDifferent);
 		channelsSeqProjTypes = initProjTypes(chns, chnColors);
 		for (j=0; j<chns.length; j++) {
@@ -1019,7 +1030,13 @@ function channelColorsAndSaturationsDialog() {
 		Dialog.addMessage("(for information)");
 	 	channelSeq = channelSequences[i];
 	 	chns = toArray(channelSeq, ",");
+
 		channelColorIndexes = initChannelColorIndexes(chns);
+
+	 	//makeColorsDifferent = true;
+		//if (ensureColorsAreDifferent)
+		//	idx = ensureColorIndexesAreDifferent(idx);
+
 		for (j=0; j<chns.length; j++) {
 			defaultClr = compositeColors[channelColorIndexes[j]];
 			if (chns[j]==0) {
@@ -1519,7 +1536,7 @@ function removeSinglets(list) {
 		fname = list[i];
 		if (indexOf(fname, ".") < 1) continue;
 		fname = substring(fname, 0, lastIndexOf(fname, "."));
-		if (!matches(fname, ".*_t\\d+") && !matches(fname, "._w\\d+.*" )) {
+		if (!matches(fname, ".*_t\\d+") && !matches(fname, ".*_w\\d+.*" )) {
 			if (k++==0)
 				print("\nSinglets or Non Metamorph-acquired-unprocessed files, "+
 						"excluded from processing:");
@@ -2437,9 +2454,14 @@ function initChannelColorIndexes(chns) {
 			if (found) continue;
 		}
 	}
+//	 	makeColorsDifferent = true;
+//	 	channelColors = getChannelColors(chns, makeColorsDifferent);//?
 	if (dbg) for (i=0; i<idx.length; i++) {
 		print("channelIndexes["+i+"] = "+idx[i]);
 	}
+	ensureColorsAreDifferent = true;
+	if (ensureColorsAreDifferent)
+		idx = ensureColorIndexesAreDifferent(idx);
 	return idx;
 }
 
@@ -2472,6 +2494,26 @@ function getChannelColorIndexesSeriesBySeries(imageList) {
  * {"c1", ..., "c7"} set and must be different from each other, as in the 
  * Image>Color>"Merge Channels..." command. */
 function ensureColorIndexesAreDifferent(colourIndexes) {
+	nchn = colourIndexes.length;
+	clrIndexes = newArray(nchn);
+	for (i=0; i<nchn; i++) {
+		clrIndexes[i] = colourIndexes[i];
+	}
+	for (i=nchn-1; i>=0; i--) {
+		c=nchn-1;
+		for (j=i-1; j>=0; j--) {//cycle until a free index is found
+			if (clrIndexes[j]==colourIndexes[i]) {
+				c--;
+				clrIndexes[j] += 1;
+				if (clrIndexes[j]==7) clrIndexes[j] = 0;
+			}
+			if (c==0) break;
+		}
+	}
+	return clrIndexes;
+}
+
+function ensureColorIndexesAreDifferent_OLD(colourIndexes) {
 	nchn = colourIndexes.length;
 	clrIndexes = newArray(nchn);
 	for (i=0; i<nchn; i++) {
