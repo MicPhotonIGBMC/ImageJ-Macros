@@ -433,11 +433,9 @@ var acquisitionYear, acquisitionMonth;
 var searchIndexForZPosition;
 var searchStartIndex;
 
+var fullMode = true;
 
-var fullMode;
-
-macro "Metamorph Files To HyperStacks:" {
-}
+macro "Metamorph Files to Hypertacks:" {}
 
 macro "EasyMode_Zproj [F1]" {
 	fullMode = false;
@@ -455,7 +453,7 @@ macro "EasyMode_noZproj [F2]" {
 
 macro "Full_Mode [F3]" {
 requires("1.52g");
-fullMode = true;
+//fullMode = true;
 doZproj = false;
 doZprojsByDefault = false;
 execute();
