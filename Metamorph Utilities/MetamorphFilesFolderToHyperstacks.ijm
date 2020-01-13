@@ -4,8 +4,7 @@
  * e-mail: boeglin@igbmc.fr
  * 
  * ¤ Opens Metamorph multi-position time-series z-stacks of up to 7 channels
- *   from input folder
- and saves them as hyperstacks to output folder.
+ *   from input folder and saves them as hyperstacks to output folder.
  *
  * ¤ Only TIFF and STK files are processed.
  *
@@ -80,17 +79,16 @@
 */
 
 //TODO
-/* Si z-range < nSlices/2 : ouvrir par open(path) et supprimer les slices non
- * voulus car ouvrir slice par slice est bcp plus long qu'ouvrir toute la pile.
- * Utiliser .nd pour remplacer s1, s2 etc par les noms des positions
+/* 1. Si z-range < nSlices/2 : ouvrir par open(path) et supprimer les slices non
+ *    voulus car ouvrir slice par slice est bcp plus long qu'ouvrir toute la pile.
+ * 2. Utiliser .nd pour remplacer s1, s2 etc par les noms des positions
  */
 
-
-var dBug = false;
+var dbug = false;//not used
 
 var macroName = "MetamorphFilesFolderToHyperstacks";
-var version = "43t";
-var author = "Author: Marcel Boeglin 2018-2019";
+var version = "43u11";
+var author = "Author: Marcel Boeglin 2018-2020";
 var msg = macroName+"\nVersion: "+version+"\n"+author;
 var info = "Created by "+macroName+"\n"+author+"\nE-mail: boeglin@igbmc.fr";
 var features = "Opens  input folder  image series consisting  in up"+
@@ -130,6 +128,7 @@ var cyanDeterminants = newArray("CFP");
 var magentaDeterminants = newArray("CY5", "Y5");
 var yellowDeterminants = newArray("YFP");
 
+var machine = "Spinning Disk / Nikon - IGBMC";//dupplique en ~770
 /** dualCameraSettingsInMetadata
  * Enter in this array all dual channel settings you may have to process,
  * as they appear in image metadata (may != those in imagenames!) */
@@ -190,7 +189,7 @@ var doSeries;//array of dim nSeries
 var letMeChooseSeries = true;
 var noChannelDependentBinning = true;
 var doZproj = true;
-var doZprojsByDefault = true;
+var doZprojsByDefault = false;
 
 /**add missing files infos to overlay, else grab into pixels*/
 var addToOverlay = true;
@@ -209,6 +208,9 @@ var roiX, roiY, roiW, roiH;
 var firstSlice=1, lastSlice=-1;
 var doRangeAroundMedianSlice = false;
 var rangeAroundMedianSlice = 50; // % of stack-size
+
+var firstPosition = 1, lastPosition = -1;
+var startPosition, stopPosition;
 
 var firstTimePoint=1, lastTimePoint=-1;//-1 means until nTimePoints
 var doRangeFrom_t1 = false;
@@ -360,10 +362,102 @@ var channelColorIndexes;
 var pluginName = "tiff_tags.jar";
 var tiff_tags_plugin_installed = false;
 
-requires("1.52g");
-
 var seriesWithSameChannels;
 
+
+var machine = "Spinning Disk / Nikon - IGBMC";//dupplique tout en haut
+
+var realObjective, declaredObjective;
+var doPixelSizeCorrection = false;
+var pixelSizeCorrection = 1.0;
+
+
+//AJOUTER dans MMMetadataEntries pour spinning Leica :
+//"ASI Piezo Z"
+//"Camera Bit Depth"
+//et analyser les metadata suivantes:
+//<custom-prop id="ASI Piezo Z" type="float" value="-35.36"/>
+//<custom-prop id="ASI Piezo Z" type="float" value="15.48"/>
+//<custom-prop id="Camera Bit Depth" type="float" value="16"/>
+
+//Metadata processing
+///////////////////////////////////////////////////////////////////////////////
+var MMMetadataEntries = newArray(
+//	Description-tag entry		Array-index	Macro-variable				Type
+	"pixel-size-x",					//	0	pixelsX						int
+	"pixel-size-y",					//	1	pixelsY						int
+	"bits-per-pixel",				//	2	bitsPerPixel				int
+	"spatial-calibration-state",	//	3	isSpatiallyCalibrated		boolean
+	"spatial-calibration-x",		//	4	xCalibration				float
+	"spatial-calibration-y",		//	5	yCalibration				float
+	"spatial-calibration-units",	//	6	spatialCalibrationIUnit		string
+	"image-name",					//	7	mmImageName					string
+	"acquisition-time-local",		//	8	acquisitionTimeStr			string
+	"modification-time-local",		//	9	modificationTimeStr			string
+	"z-position",					//	10	zPosition					float
+	"camera-binning-x",				//	11	cameraBinningX				int
+	"camera-binning-y",				//	12	cameraBinningY				int
+	"_IllumSetting_",				//	13	illumSetting				string
+	"_MagSetting_",					//	14	objective					string
+	"number-of-planes");			//	15	numberOfPlanes				int
+
+//donnees issues du description-tag
+var pixelsX;//int
+var pixelsY;//int
+var bitsPerPixel;//int
+var isSpatiallyCalibrated;//boolean
+var xCalibration;//float, 
+var yCalibration;//float
+var spatialCalibrationIUnit;//string
+var mmImageName;//string
+var acquisitionTimeStr;//time "20180627 15:41:16.090" -> ms
+var acquisitionTime;//time "20180627 15:41:16.090" -> ms
+var modificationTimeStr;//time "20180627 15:41:20.483"
+var modificationTime;//time "20180627 15:41:20.483"
+var zPosition;//float (micron ?)
+var zPositionBegin, zPositionEnd;//float (micron ?)
+var cameraBinningX;//int
+var cameraBinningY;//int
+var illumSetting;//string
+var objective;//string
+var numberOfPlanes;//int
+
+//Windows forbidden chars in filenames : \ / : * ? " < > |
+/** Caracteres speciaux regex autorises dans les noms de fichiers Windows.
+    "s" remplace les espaces par \s et conserve les caracteres literaux 's' */
+var regexMetachars = newArray("^", "$", "+", "{", "}", "[", "]", "(", ")", "s");
+
+//added to take in account image-acquisition month & year:
+var acquisitionYear, acquisitionMonth;
+
+var searchIndexForZPosition;
+var searchStartIndex;
+
+
+var fullMode;
+
+macro "Metamorph Files To HyperStacks:" {
+}
+
+macro "EasyMode_Zproj [F1]" {
+	fullMode = false;
+	doZproj = true;
+	doZprojsByDefault = true;
+	run("Full_Mode [F3]");
+}
+
+macro "EasyMode_noZproj [F2]" {
+	fullMode = false;
+	doZproj = false;
+	doZprojsByDefault = false;
+	run("Full_Mode [F3]");
+}
+
+macro "Full_Mode [F3]" {
+requires("1.52g");
+fullMode = true;
+doZproj = false;
+doZprojsByDefault = false;
 execute();
 
 /** returns array of strings contained in str 
@@ -473,9 +567,11 @@ function execute() {
 	print(features);
 	print("");
 	startTime = getTime();
-	dualCameraDialog();
-	dualCameraDialog2();
-	fileFilterAndCalibrationParamsDialog();
+//	if (fullMode) {
+		dualCameraDialog();
+		dualCameraDialog2();
+		fileFilterAndCalibrationParamsDialog();
+//	}
 
 //	if (displayDataReductionDialog) dataReductionDialog();
 
@@ -506,7 +602,7 @@ function execute() {
 	seriesNames = getSeriesNames(list);
 	//print("execute() : nSeries = "+nSeries);
 
-	if (displayDataReductionDialog) dataReductionDialog();
+	if (fullMode && displayDataReductionDialog) dataReductionDialog();
 
 	if (cropAtImport && roisFromManager) {
 		list = filterList(list, seriesToCrop, "");
@@ -518,9 +614,22 @@ function execute() {
 	doSeries = newArray(nSeries);
 	for (i=0; i<nSeries; i++) doSeries[i] = true;
 	//doSeries[0] = true;
+
+ /* */
+	//original: permet de ne pas traiter des series si cropAtImport et fichier existe
+	//dans dir1/ImagesWithRois
+	//if (fullMode)
 	if (nSeries>1 && letMeChooseSeries) {
 		displaySeriesNamesDialog();
 	}
+/* */
+/* 
+	//ESSAI : ne pas activer
+	if (nSeries>1 && letMeChooseSeries && !cropAtImport) {
+		displaySeriesNamesDialog();
+	}
+*/
+
 	if (nSeries>1)
 		list = reduceListToSelectedSeries(list);
 	nSeries = seriesNames.length;
@@ -560,8 +669,10 @@ function execute() {
 
 	printParams();
 
-	channelGroupsHandlingDialog();
-	channelColorsAndSaturationsDialog();
+//	if (fullMode) {
+		channelGroupsHandlingDialog();
+		channelColorsAndSaturationsDialog();
+//	}
 
 	filterExtensions = isExtensionFilter(fileFilter);
 	//print("filterExtensions = "+filterExtensions);
@@ -581,10 +692,19 @@ function execute() {
 	//print("nPos = "+nPos);
 	//print("maxPositions = "+maxPositions);
 	findPositionsSeriesBySeries(list);
-	positionsSeriesBySeriesDialog(list);
+
+	/* if cropAtImport, only series and positions for which a file has
+	 * been found in inputDir/ImagesWithRois are processed */
+//activer "if (!cropAtImport)", interdit desactiver positions si cropAtImport
+//	if (!cropAtImport)
+		//if (fullMode)
+			positionsSeriesBySeriesDialog(list);
 
 	processFolder();
 	finish();
+	//Log has been saved recurently without extension to workaround bug on Win10
+	//forbiding second save of .txt files. Rename as .txt is accepted.
+	File.rename(dir2+"Log", dir2+"Log.txt");
 }
 
 /** Asks for each series if is to be precessed or not
@@ -634,7 +754,7 @@ function displaySeriesNamesDialog() {
 				"\nYes to process all series, No or Cancel to abort."))
 			exit();
 	}
-	Dialog.show();
+	if (fullMode) Dialog.show();
 	for (i=0; i<nSeries; i++) {
 		doSeries[i] = Dialog.getCheckbox();
 	}
@@ -664,6 +784,7 @@ function getSeriesCompleteness() {//NOT USED
 	}
 }
 
+//A REVOIR
 /** Finds image types, maxWidths, maxHeights and maxDepths of each series */
 function getImageTypes_MaxWidhs_MaxHeights() {
 	dbg = false;
@@ -714,11 +835,40 @@ function getImageTypes_MaxWidhs_MaxHeights() {
 			//print("fname = "+fname);
 			if (!File.exists(path)) continue;
 			id = 0;
-			getImageMetadata(path, id, tiff_tags_plugin_installed);
-			bitdepth = bitsPerPixel;
-			width = pixelsX;
+			if (getImageMetadata(path, id, tiff_tags_plugin_installed)) {
+				bitdepth = bitsPerPixel;
+				width = pixelsX;
+				height = pixelsY;
+			}
+
+			else {//A REVOIR: utiliser tiff_tags
+				open(path);
+//SHUNTAGE TEMPORAIRE
+/**/ 
+				str = getInfo("image.description");
+				close();
+				t = split(str, "\\r\n");
+				//for (k=0; k<t.length; k++) {print(t[k]);}
+				tag = "";
+				for (k=0; k<t.length; k++) {
+					tag = t[k];
+					if (indexOf(tag, "Region:")>=0) break;
+				}
+				if (tag=="") return;
+				print("tag = "+tag);
+				tag = substring(tag, 8, indexOf(tag, ","));
+				dims = split(tag, "\\sx\\s");
+				//print("dims[0] = "+dims[0]);
+				//print("dims[1] = "+dims[1]);
+				width = parseInt(dims[0]);
+				height = parseInt(dims[1]);
+/**/
+				width = getWidth();
+				height = getHeight();
+				close();
+			}
+
 			if (width>maxW) maxW = width;
-			height = pixelsY;
 			if (height>maxH) maxH = height;
 			if (noChannelDependentBinning) break;
 		}
@@ -744,11 +894,10 @@ function getSeriesCalibrationOptions() {//not used
 	}
 	Dialog.addMessage("Found following series in folder:\n"+s);
 	Dialog.addChoice("Calibration option", calibrationOptions)
-	Dialog.show();
+	//if (fullMode)
+		Dialog.show();
 	calibrationOption = Dialog.getChoice();
 }
-
-var machine = "Spinning Disk / Nikon - IGBMC";
 
 function dualCameraDialog() {
 	machines = newArray(3);
@@ -766,7 +915,7 @@ function dualCameraDialog() {
 	Dialog.addMessage("N.B.:"+
 		"\nIt's assumed that all dual channel series in input"+
 		"\n folder have been done using the same machine.");
-	Dialog.show();
+	if (fullMode) Dialog.show();
 	machine = Dialog.getChoice();
 }
 
@@ -785,14 +934,10 @@ function dualCameraDialog2() {
 	Dialog.addString("Illumination Settings Separator", dualChannelSeparator);
 	Dialog.addToSameRow();
 	Dialog.addMessage("parentheses = Regex");
-	Dialog.show();
+	if (fullMode) Dialog.show();
 	firstDualChannelIllumSetting_is_w1 = Dialog.getCheckbox();
 	dualChannelSeparator = Dialog.getString();
 }
-
-var realObjective, declaredObjective;
-var doPixelSizeCorrection = false;
-var pixelSizeCorrection = 1.0;
 
 function fileFilterAndCalibrationParamsDialog() {
 	Dialog.create(macroName+"  -  Main Dialog");
@@ -839,7 +984,7 @@ function fileFilterAndCalibrationParamsDialog() {
 	Dialog.addMessage(author+"   boeglin@igbmc.fr");
 	//Dialog.addString("E-mail","boeglin@igbmc.fr");
 
-	Dialog.show();
+	if (fullMode) Dialog.show();
 	fileFilter = Dialog.getString();
 	excludingFilter = Dialog.getString();
 	addToOverlay = (Dialog.getChoice()=="Add to Overlay");
@@ -900,18 +1045,27 @@ function dataReductionDialog() {
 			doRangeAroundMedianSlice);
 	Dialog.addNumber("Range", rangeAroundMedianSlice, 0, 4,
 			"% of stackSize; <0: reverse stack");
+
+
+	Dialog.addMessage("Multi-position series:");
+	Dialog.addNumber("firstPosition", firstPosition, 0, 4,
+			"");
+	Dialog.addNumber("lastPosition", lastPosition, 0, 4,
+			"-1 means last found position");
+
+
 	Dialog.addMessage("Time-series:");
 	Dialog.addNumber("firstTimePoint", firstTimePoint, 0, 4,
 			"");
 	Dialog.addNumber("lastTimePoint", lastTimePoint, 0, 4,
-			"-1 means last time point");
+			"-1 means last found time point");
 //	Dialog.addNumber("lastTimePoint", lastTimePoint, 0, 4,
 //			"-1 means last time point whatever timelapse duration");
 	Dialog.addCheckbox("Process range from t1", doRangeFrom_t1);
 	Dialog.addNumber("Range", rangeFrom_t1, 0, 4,
 			"% of timelapse duration");
 
-	Dialog.show();
+	if (fullMode) Dialog.show();
 
 	resizeAtImport = Dialog.getCheckbox();
 	resizeFactor = Dialog.getNumber();
@@ -938,7 +1092,7 @@ function dataReductionDialog() {
 		showMessage(msg);
 	}
 	roisFromImages = true;
-/*
+/* 
 	if (cropAtImport && roisFromImages) {
 		if (!File.exists(dir1+"ImagesWithRois")) {
 			exit("Input dir must have a subdir named ImagesWithRois\n"+
@@ -950,6 +1104,10 @@ function dataReductionDialog() {
 	lastSlice = Dialog.getNumber();
 	doRangeAroundMedianSlice = Dialog.getCheckbox();
 	rangeAroundMedianSlice = Dialog.getNumber();// % of stack-size
+
+	firstPosition = Dialog.getNumber();
+	lastPosition = Dialog.getNumber();
+
 	firstTimePoint = Dialog.getNumber();
 	lastTimePoint = Dialog.getNumber();
 	doRangeFrom_t1 = Dialog.getCheckbox();
@@ -985,7 +1143,7 @@ function channelGroupsHandlingDialog() {
 			Dialog.addChoice(chns[j], projectionTypes, channelsSeqProjTypes[j]);
 		}
 	}
-	Dialog.show();
+	if (fullMode) Dialog.show();
 	for (i=0; i<seriesWithSameChannels.length; i++) {
 		unusedVariable = Dialog.getChoice();
 	 	channelSeq = channelSequences[i];
@@ -1049,7 +1207,7 @@ function channelColorsAndSaturationsDialog() {
 			Dialog.addNumber("", 0.01, 2, 5, "% saturated pixels");
 		}
 	}
-	Dialog.show();
+	if (fullMode) Dialog.show();
 	for (i=0; i<seriesWithSameChannels.length; i++) {
 		unusedVariable = Dialog.getChoice();
 	 	channelSeq = channelSequences[i];
@@ -1090,11 +1248,6 @@ function initChannelSaturations(channelSeqs) {//Not used (too complicated)
 	}
 	return channelSeqsSaturations;
 }
-
-//Windows forbidden chars in filenames : \ / : * ? " < > |
-/** Caracteres speciaux regex autorises dans les noms de fichiers Windows.
-    "s" remplace les espaces par \s et conserve les caracteres literaux 's' */
-var regexMetachars = newArray("^", "$", "+", "{", "}", "[", "]", "(", ")", "s");
 
 function escapeRegexMetachars(str) {
 	//print("\nescapeRegexMetachars(str) :");
@@ -1147,7 +1300,14 @@ function findPositionsSeriesBySeries(filenames) {
 		waveRegex = ".*";
 		if (mw) waveRegex = "_w\\d.*";
 		if (mp) {
-			for (i=0; i<npositions; i++) {
+			startPosition = firstPosition;
+			if (startPosition<1) startPosition = 1;
+			stopPosition = lastPosition;
+			if (stopPosition==-1) stopPosition = npositions;
+			if (stopPosition>npositions) stopPosition = npositions;
+			print("Process positions from _s"+startPosition+" to _s"+stopPosition);
+			for (i=startPosition-1; i<stopPosition; i++) {
+			//for (i=0; i<npositions; i++) {
 				iPlus1 = i+1;
 				pExists = false;
 				for (j=0; j<fnames.length; j++) {
@@ -1160,11 +1320,30 @@ function findPositionsSeriesBySeries(filenames) {
 					fname = fnames[j];
 					fname = escapeRegexMetachars(fname);
 					str = "_s"+iPlus1;
+					if (isPositionFilter(fileFilter)) {
+						if (endsWith(fileFilter, "_")) str += "_";
+						else if (endsWith(fileFilter, ".")) str += "\\.";
+					}
+					//print("fname = "+fname);
 					if (dbg) print("str = "+str);
-			//		if (matches(seriesNameLessName,
-			//				waveRegex+"_s"+iPlus1+".*")) {//FONCTIONNE
-					if (matches(fnames[j],
-							seriesName+waveRegex+"_s"+iPlus1+".*")) {//FCTIONNE
+					//ajoute positions dans dialogue (pas processees) mmeme si _s32_
+					//if (matches(fnames[j],
+					//		seriesName+waveRegex+"_s"+iPlus1+".*")) {
+
+					//ajoute positions dans dialogue (pas processees) mmeme si _s32_
+					//if (matches(seriesNameLessName,
+					//		waveRegex+"_s"+iPlus1+".*")) {
+
+					//ok, si fileFilter par ex "_s32_" n'ajoute pas "_s3" dans dialogue
+					//if (matches(fnames[j],
+					//		seriesName+waveRegex+str+".*")) {
+
+					//ok, si fileFilter par ex "_s32_" n'ajoute pas "_s3" dans dialogue
+					//if (matches(fname,
+					//		seriesName+waveRegex+str+".*")) {
+
+					//ok, si fileFilter par ex "_s32_" n'ajoute pas "_s3" dans dialogue
+					if (matches(seriesNameLessName, waveRegex+str+".*")) {
 						pExists = true;
 						positionsSeriesBySeries[++index] = "_s"+iPlus1;
 						positionExists[index] = true;
@@ -1364,7 +1543,7 @@ function positionsSeriesBySeriesDialog(filenames) {
 			index += n;
 			k++;
 		}
-		Dialog.show();
+		if (fullMode) Dialog.show();
 
 		for (i=0; i<positionsSeriesBySeries.length; i++) {
 			userPositionsSeriesBySeries[i] = positionsSeriesBySeries[i];
@@ -1662,7 +1841,14 @@ function saveLog() {
 	logname = "Log";
 	str = concatenateFileFilters(fileFilter, excludingFilter);
 	logname += str;
-	saveAs("Text", dir2+logname+".txt");
+	if (firstPosition!=1 || lastPosition!=-1)
+		logname += "_s"+startPosition+"-s"+stopPosition;
+	IJ.redirectErrorMessages();//works but macro stops if error
+	//saveAs("Text", dir2+logname+".txt");
+	//saveAs("Text", dir2+logname);//ajoute automatiquement .txt
+	//File.append(string, path);
+	str = getInfo("log");
+	File.saveString(str, dir2+logname);
 }
 
 function concatenateFileFilters(inclFilter, exclFilter) {
@@ -2609,48 +2795,6 @@ function getChannelColors(chns, ensureColorsAreDifferent) {
 	return clrs;
 }
 
-//Metadata processing
-///////////////////////////////////////////////////////////////////////////////
-var MMMetadataEntries = newArray(
-//	Description-tag entry		Array-index	Macro-variable				Type
-	"pixel-size-x",					//	0	pixelsX						int
-	"pixel-size-y",					//	1	pixelsY						int
-	"bits-per-pixel",				//	2	bitsPerPixel				int
-	"spatial-calibration-state",	//	3	isSpatiallyCalibrated		boolean
-	"spatial-calibration-x",		//	4	xCalibration				float
-	"spatial-calibration-y",		//	5	yCalibration				float
-	"spatial-calibration-units",	//	6	spatialCalibrationIUnit		string
-	"image-name",					//	7	mmImageName					string
-	"acquisition-time-local",		//	8	acquisitionTimeStr			string
-	"modification-time-local",		//	9	modificationTimeStr			string
-	"z-position",					//	10	zPosition					float
-	"camera-binning-x",				//	11	cameraBinningX				int
-	"camera-binning-y",				//	12	cameraBinningY				int
-	"_IllumSetting_",				//	13	illumSetting				string
-	"_MagSetting_",					//	14	objective					string
-	"number-of-planes");			//	15	numberOfPlanes				int
-
-//donnees issues du description-tag
-var pixelsX;//int
-var pixelsY;//int
-var bitsPerPixel;//int
-var isSpatiallyCalibrated;//boolean
-var xCalibration;//float, 
-var yCalibration;//float
-var spatialCalibrationIUnit;//string
-var mmImageName;//string
-var acquisitionTimeStr;//time "20180627 15:41:16.090" -> ms
-var acquisitionTime;//time "20180627 15:41:16.090" -> ms
-var modificationTimeStr;//time "20180627 15:41:20.483"
-var modificationTime;//time "20180627 15:41:20.483"
-var zPosition;//float (micron ?)
-var zPositionBegin, zPositionEnd;//float (micron ?)
-var cameraBinningX;//int
-var cameraBinningY;//int
-var illumSetting;//string
-var objective;//string
-var numberOfPlanes;//int
-
 function initializeMetadata() {
 	pixelsX = 1;//int
 	pixelsY = 1;//int
@@ -2697,8 +2841,6 @@ function printMetadata() {
 	print("numberOfPlanes = "+numberOfPlanes);
 }
 
-var searchIndexForZPosition;
-var searchStartIndex;
 /** assigns pixelsX etc. to values found in tag 
  * and returns the new searchStartIndex */
 function extractValue(tag, param, searchStartIndex) {
@@ -2828,7 +2970,6 @@ function computeZInterval() {
 }
 
 //added to take in account image-acquisition month & year:
-var acquisitionYear, acquisitionMonth;
 function computeAcquisitionDayAndTime(timeStr) {
 	dbg = false;
 	if (timeStr=="" || timeStr==0) return false;
@@ -2844,7 +2985,9 @@ function computeAcquisitionDayAndTime(timeStr) {
 	hourOfDay = parseInt(substring(tStr, 0, 2));
 	minute = parseInt(substring(tStr, 3, 5));
 	second = parseInt(substring(tStr, 6, 8));
-	millisecond = parseInt(substring(tStr, 9, 12));
+	//timeStr = 20191125 13:56:21.19
+	//tStr = 13:56:21.19
+	millisecond = parseInt(substring(tStr, 9, lengthOf(tStr)));
 	if (dbg) print("year = "+year);
 	if (dbg) print("month = "+month);
 	if (dbg) print("day = "+ day);
@@ -2997,6 +3140,7 @@ function extractValueAsString(tag, param) {
  * position: name of currently processed position: "_s1", "_s2", etc
  */
 function getRoisFromImage(roiImages, seriesName, channels, position) {
+	print("getRoisFromImage(roiImages, seriesName, channels, position)");
 	print(seriesName);
 	print("position = "+position);
 	projPrefixes = newArray("AVG_", "MAX_", "MIN_", "SUM_", "STD_", "MED_");
@@ -3012,6 +3156,7 @@ function getRoisFromImage(roiImages, seriesName, channels, position) {
 				break;
 			}
 		}
+		print("prefixLessName = "+prefixLessName);
 		if (!startsWith(prefixLessName, seriesName)) continue;
 		seriesLessName = substring(prefixLessName, lengthOf(seriesName), 
 				lengthOf(prefixLessName));
@@ -3294,9 +3439,11 @@ function processFolder() {
 				getRoisFromImage(roiImages, seriesName, channels,
 						userPositionsSeriesBySeries[j]);
 				nRois = roiManager("count");
+				//print("Process cropAtImport && roisFromImages : nRois = "+nRois);
 			}
 
 			for (r=0; r<nRois; r++) {
+				print("\nProcessing Roi "+r);
 			//ouvre toutes les images C et T pour
 			//chaque roi et crop seleon roi.
 			//boucle sur r finit juste avant la fin de la boucle sur
@@ -3494,19 +3641,10 @@ function processFolder() {
 								" average interpolation=None");
 						}
 					}
-					print("cropAtImport = "+cropAtImport);
-					if (cropAtImport && roisFromManager) {
-						roiManager("select", j);
-						Stack.getDimensions(width, height,
-											nchannels, depth, nframes);
-						Roi.getBounds(roiX, roiY, roiW, roiH);
-						if (roiW*roiH>0 && (roiW<width || roiH<height)) {
-							makeRectangle(roiX, roiY, roiW, roiH);
-							run("Crop");
-						}
-						roiManager("deselect");
-					}
+					//print("cropAtImport = "+cropAtImport);
+					//print("roiManager(\"count\") = "+roiManager("count"));
 					if (cropAtImport&&roisFromImages&&roiManager("count")>0) {
+						//print("roiManager(\"select\", r) r = "+r);
 						roiManager("select", r);
 						Stack.getDimensions(width, height,
 											nchannels, depth, nframes);
@@ -3525,9 +3663,15 @@ function processFolder() {
 							"width="+w2+
 							" height="+h2+
 							" depth="+nslices+
-							" average");
+							" average"
+						);
 					}
+					print("nImages = "+nImages);
+
+
 					if (nImages==0) break;
+
+
 					Stack.getDimensions(width, height,
 										nchannels, depth, nframes);
 					if (doResize) {
@@ -3636,8 +3780,8 @@ function processFolder() {
 					//print("\n \nCHECKING z dimensions");
 					for (q=0; q<depths.length; q++) {
 						//print("depths[q] = "+depths[q]);
-						for (r=q+1; r<depths.length; r++) {
-							if (depths[r] != depths[q]) {
+						for (d=q+1; d<depths.length; d++) {
+							if (depths[d] != depths[q]) {
 								heterogeneousZDims = true;
 								break;
 							}
@@ -3889,14 +4033,12 @@ function processFolder() {
 			//if (nImages>startImgNumber) close();
 			while (nImages>startImgNumber) close();
 			saveLog();
-			}//end loop over crop-Rois
+			}//end loop over crop-Rois (r)
 			if (cropAtImport && roisFromImages) roiManager("reset");
-		}//end position j
-
-
+		}//end positions (j)
 		positionIndex3 += positionNumbers[i];
 		printMetadata();
-	}//end series i
+	}//end series (i)
 	print("");
 	setBatchMode(false);
 }//end processFolder()
@@ -4087,5 +4229,6 @@ function getImageType(bitdepth) {
 	return "";
 }
 
+}
 //80 caracteres:
 //23456789 123456789 123456789 123456789 123456789 123456789 123456789 1234567890
