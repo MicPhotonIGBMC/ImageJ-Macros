@@ -87,7 +87,7 @@
 var dbug = false;//not used
 
 var macroName = "MetamorphFilesFolderToHyperstacks";
-var version = "43u11";
+var version = "43u16";
 var author = "Author: Marcel Boeglin 2018-2020";
 var msg = macroName+"\nVersion: "+version+"\n"+author;
 var info = "Created by "+macroName+"\n"+author+"\nE-mail: boeglin@igbmc.fr";
@@ -433,29 +433,31 @@ var acquisitionYear, acquisitionMonth;
 var searchIndexForZPosition;
 var searchStartIndex;
 
+
+//variables definies plus haut
+//var doZproj = true;
+//var doZprojsByDefault = false;
 var fullMode = true;
+//print("fullMode = "+fullMode);
 
-macro "Metamorph Files to Hypertacks:" {}
 
-macro "EasyMode_Zproj [F1]" {
-	fullMode = false;
-	doZproj = true;
-	doZprojsByDefault = true;
-	run("Full_Mode [F3]");
-}
+var arg = getArgument();
+/*
+doZProj = false;
+var arg = getArgument();
+print("arg = "+arg);
+if (indexOf(arg, "fullMode")>=0) fullMode = true;
+if (indexOf(arg, "doZprojsByDefault")>=0) doZprojsByDefault = true;
+if (indexOf(arg, "doZProj")>=0) doZProj = true;
+if (indexOf(arg, "doZProj")>=0) doZprojsByDefault = true;
+print("fullMode = "+fullMode);
+print("doZProj = "+doZProj);
+print("doZprojsByDefault = "+doZprojsByDefault);
+*/
 
-macro "EasyMode_noZproj [F2]" {
-	fullMode = false;
-	doZproj = false;
-	doZprojsByDefault = false;
-	run("Full_Mode [F3]");
-}
 
-macro "Full_Mode [F3]" {
 requires("1.52g");
-//fullMode = true;
-doZproj = false;
-doZprojsByDefault = false;
+
 execute();
 
 /** returns array of strings contained in str 
@@ -559,6 +561,46 @@ function execute() {
 	//setKeyDown("none");
 	getDirs();
 	print("\\Clear");
+	print("\nExecution:");
+
+
+//ESSAI
+doZProj = false;
+//var arg = getArgument();
+//arg = getArgument();
+print("arg = "+arg);
+if (arg=="EasyMode_Zproj") {
+	fullMode = false;
+	doZProj = true;
+	doZprojsByDefault = true;
+}
+else if (arg=="EasyMode_noZproj") {
+	fullMode = false;
+	doZProj = false;
+	doZprojsByDefault = false;
+}
+else if (arg=="Full_Mode") {
+	fullMode = true;
+	doZProj = false;
+	doZprojsByDefault = false;
+}
+
+/*
+if (indexOf(arg, "fullMode")>=0) fullMode = true;
+if (indexOf(arg, "doZprojsByDefault")>=0) doZprojsByDefault = true;
+if (indexOf(arg, "doZProj")>=0) doZProj = true;
+if (indexOf(arg, "doZProj")>=0) doZprojsByDefault = true;
+*/
+
+print("fullMode = "+fullMode);
+print("doZProj = "+doZProj);
+print("doZprojsByDefault = "+doZprojsByDefault);
+
+
+
+	print("fullMode = "+fullMode);
+	print("doZProj = "+doZProj);
+	print("doZprojsByDefault = "+doZprojsByDefault);
 	print(msg);
 	print("E-mail: boeglin@igbmc.fr");
 	print("");
@@ -600,6 +642,7 @@ function execute() {
 	seriesNames = getSeriesNames(list);
 	//print("execute() : nSeries = "+nSeries);
 
+	print("fullMode = "+fullMode);
 	if (fullMode && displayDataReductionDialog) dataReductionDialog();
 
 	if (cropAtImport && roisFromManager) {
@@ -702,7 +745,9 @@ function execute() {
 	finish();
 	//Log has been saved recurently without extension to workaround bug on Win10
 	//forbiding second save of .txt files. Rename as .txt is accepted.
-	File.rename(dir2+"Log", dir2+"Log.txt");
+	path = dir2+"Log.txt";
+	if (File.exists(path)) File.delete(path);
+	File.rename(dir2+"Log", path);
 }
 
 /** Asks for each series if is to be precessed or not
@@ -841,10 +886,11 @@ function getImageTypes_MaxWidhs_MaxHeights() {
 
 			else {//A REVOIR: utiliser tiff_tags
 				open(path);
-//SHUNTAGE TEMPORAIRE
 /**/ 
+//PROBLEME POSSIBLE ICI avec images Timelapse1:
+
 				str = getInfo("image.description");
-				close();
+		//		close();
 				t = split(str, "\\r\n");
 				//for (k=0; k<t.length; k++) {print(t[k]);}
 				tag = "";
@@ -852,19 +898,24 @@ function getImageTypes_MaxWidhs_MaxHeights() {
 					tag = t[k];
 					if (indexOf(tag, "Region:")>=0) break;
 				}
-				if (tag=="") return;
-				print("tag = "+tag);
-				tag = substring(tag, 8, indexOf(tag, ","));
-				dims = split(tag, "\\sx\\s");
-				//print("dims[0] = "+dims[0]);
-				//print("dims[1] = "+dims[1]);
-				width = parseInt(dims[0]);
-				height = parseInt(dims[1]);
-/**/
-				width = getWidth();
-				height = getHeight();
+				//if (tag=="") return;
+				if (tag!="") {
+					print("tag = "+tag);
+					tag = substring(tag, 8, indexOf(tag, ","));
+					dims = split(tag, "\\sx\\s");
+					//print("dims[0] = "+dims[0]);
+					//print("dims[1] = "+dims[1]);
+					width = parseInt(dims[0]);
+					height = parseInt(dims[1]);
+				}
+				else {
+					width = getWidth();
+					height = getHeight();
+				}
 				close();
 			}
+//PROBLEME POSSIBLE ICI avec images Timelapse1: fin
+/**/
 
 			if (width>maxW) maxW = width;
 			if (height>maxH) maxH = height;
@@ -3364,7 +3415,10 @@ function processFolder() {
 		str2 = "";
 		str3 = "";
 		str4 = "";
-		foundAcquisitionTime = true;
+		foundAcquisitionTime = false;
+		meanFrameInterval = userFrameInterval;
+
+//		foundAcquisitionTime = true;
 		if (istimeseries) {
 			//acquisitionDays = newArray(nFrames);
 			//acquisitionTimes = newArray(nFrames);
@@ -3712,13 +3766,14 @@ function processFolder() {
 							//voxelDepth = ZInterval;
 							computeAcquisitionDayAndTime(acquisitionTimeStr);
 							print("acquisitionTimeStr = "+acquisitionTimeStr);
-							foundAcquisitionTime = true;
+							if (acquisitionTimeStr!="")
+								foundAcquisitionTime = true;
 						}
 						//print("ZInterval = "+ZInterval);
 						print("voxelDepth = "+voxelDepth);
 						print("acquisitionTime = "+acquisitionTime);
 						print("");
-						if (istimeseries) {
+						if (istimeseries && acquisitionTimeStr!="") {
 							acquisitionYears[0] = acquisitionYear;
 							acquisitionMonths[0] = acquisitionMonth;
 							acquisitionDays[0] = acquisitionDay;
@@ -3747,11 +3802,13 @@ function processFolder() {
 						print("voxelDepth = "+voxelDepth);
 						print("");
 						computeAcquisitionDayAndTime(acquisitionTimeStr);
-						foundAcquisitionTime = true;
-						acquisitionYears[1] = acquisitionYear;
-						acquisitionMonths[1] = acquisitionMonth;
-						acquisitionDays[1] = acquisitionDay;
-						acquisitionTimes[1] = acquisitionTime;
+						if (acquisitionTimeStr!="") {
+							foundAcquisitionTime = true;
+							acquisitionYears[1] = acquisitionYear;
+							acquisitionMonths[1] = acquisitionMonth;
+							acquisitionDays[1] = acquisitionDay;
+							acquisitionTimes[1] = acquisitionTime;
+						}
 					}
 					//print("pp = "+pp);
 					//ne calculer acquisitionTime que pour t==1 et t==nFrames
@@ -3924,6 +3981,8 @@ function processFolder() {
 			if (dbg) print("lastTimePoint = "+lastTimePoint+
 					"    firstTimePoint = "+firstTimePoint);
 			if (istimeseries && (stopT-startT)>0 && pp==1) {
+//PROBLEME POSSIBLE ICI
+				meanFrameInterval = userFrameInterval;
 				if (foundAcquisitionTime) {
 					dt = computeTimelapseDuration(acquisitionYears, 
 												acquisitionMonths, 
@@ -3931,15 +3990,17 @@ function processFolder() {
 												acquisitionTimes);
 					print("dt = "+dt);
 					//print("");
-					meanFrameInterval = 0;
 					//if (nFrames>1)
+					if (dt>0) {
+					print("timeRange = "+timeRange);
 					if (timeRange>0)
 						meanFrameInterval = dt/(timeRange);
-						//meanFrameInterval = dt/(nFrames-1);
-				}
-				else {
-					meanFrameInterval = userFrameInterval;
-				}
+						//meanFrameInterval = dt/(nFrames-1);						
+					}
+			}
+			else {
+				meanFrameInterval = userFrameInterval;
+			}
 			}
 			if (istimeseries && !oneOutputFilePerTimePoint) {
 				//print("usedChannels.length = "+usedChannels.length);
@@ -4227,6 +4288,5 @@ function getImageType(bitdepth) {
 	return "";
 }
 
-}
 //80 caracteres:
 //23456789 123456789 123456789 123456789 123456789 123456789 123456789 1234567890
