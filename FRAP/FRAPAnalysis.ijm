@@ -38,6 +38,7 @@ var nbSliceStack;    			/*nombre d'images dans la stack*/
 var SequenceName;				/*nom de la pile d'images en temps*/
 var imageTime = newArray(nbSliceStack);	
 var BackMean;
+var xFrap;
 
 macro "Load_FRAP_Sequence [1]"
 {
@@ -84,11 +85,11 @@ macro "Load_FRAP_Sequence [1]"
 	t0				= getImageTime();						/* t0*/
 	imageTime[0]	= 0;
 
-for(i = 2; i < =nbSliceStack; i++)
+for(i = 1; i < =nbSliceStack-1; i++)
 	{
-		setSlice(i);
-		imageTime[i - 1] = getImageTime() - t0;				/*recup des valeurs de temps pour chaque image - t0*/
-//		print (imageTime[i-1]);
+		setSlice(i+1);
+		imageTime[i ] = getImageTime() - t0;				/*recup des valeurs de temps pour chaque image - t0*/
+		//print (i, imageTime[i]);
 	}
 
 /*	print ("RealTime (sec) for ImageSeries ", SequenceName);   // creat a txt file with the time datas 
@@ -214,33 +215,33 @@ for(i = 2; i < =nbSliceStack; i++)
 	selectWindow(SequenceName);
 	setSlice(1);
 	getStatistics(area, meanMin);
-	for (i = 2; i != nbSliceStack; i++)
+	for (i = 1; i != nbSliceStack; i++)
 	{
-		setSlice(i + 1);
+		setSlice(i );
 		getStatistics(area, mean);
 		if(mean < meanMin)
 		{
 			meanMin		= mean;
-			frapIndex	= i;
+			frapIndex	= i-1;
 		}
 	}
 	setSlice(1);
-	frapIndex++;
+	//frapIndex++;
 	xFrap=frapIndex;
-	print (xFrap);
+	print ("xfrap=", xFrap);
 
 // normalisation à 1
 
 		// ****** Premiere normalisation (Normalisation a 1 de Frap et Ref)
 		SumPBFrap = 0;
-		for (i = 1; i != xFrap - 1; i++)
+		for (i =0; i != xFrap ; i++)
 			SumPBFrap += FrapCorrBack[i];											// determination de maxFrap, valeur utilisee pour normaliser la courbe de FRAP a 1
-		maxFrap = SumPBFrap / (xFrap - 2);										// maxFrap est la moyenne des intensites prebleach a l'exclusion de la 1ere (cause effet dark state)
+		maxFrap = SumPBFrap / (xFrap );										// maxFrap est la moyenne des intensites prebleach a l'exclusion de la 1ere (cause effet dark state)
 
 		SumPBRef = 0;
-		for(i = 1; i != xFrap - 1; i++)
+		for(i = 0; i != xFrap ; i++)
 			SumPBRef += RefCorrBack[i];											// determination de maxRef, valeur utilisee pour normaliser la courbe de FRAP a 1
-		maxRef = SumPBRef / (xFrap - 2);										// maxRef est la moyenne des intensites prebleach a l'exclusion de la 1ere (cause effet dark state)
+		maxRef = SumPBRef / (xFrap );										// maxRef est la moyenne des intensites prebleach a l'exclusion de la 1ere (cause effet dark state)
 
 		NormFrap = newArray(nbSliceStack);
 		NormRef  = newArray(nbSliceStack);
@@ -275,8 +276,6 @@ for(i = 2; i < =nbSliceStack; i++)
 		Plot.show();
 
 }
-
-
 
 
 
@@ -372,33 +371,34 @@ roiManager("Sort");																					//pour que les ROI soient toujours dans 
 	selectWindow(SequenceName);
 	setSlice(1);
 	getStatistics(area, meanMin);
-	for (i = 2; i != nbSliceStack; i++)
+	for (i = 1; i != nbSliceStack; i++)
 	{
-		setSlice(i + 1);
+		setSlice(i );
 		getStatistics(area, mean);
 		if(mean < meanMin)
 		{
 			meanMin		= mean;
-			frapIndex	= i;
+			frapIndex	= i-1;
 		}
 	}
 	setSlice(1);
-	frapIndex++;
+	//frapIndex++;
 	xFrap=frapIndex;
-	print (xFrap);
+	print ("xfrap=", xFrap);
 
 // normalisation à 1
 
 		// ****** Premiere normalisation (Normalisation a 1 de Frap et Ref)
 		SumPBFrap = 0;
-		for (i = 1; i != xFrap - 1; i++)
+		
+		for (i = 0; i != xFrap ; i++)
 			SumPBFrap += FrapCorrBack[i];											// determination de maxFrap, valeur utilisee pour normaliser la courbe de FRAP a 1
-		maxFrap = SumPBFrap / (xFrap - 2);										// maxFrap est la moyenne des intensites prebleach a l'exclusion de la 1ere (cause effet dark state)
+		maxFrap = SumPBFrap / (xFrap );										// maxFrap est la moyenne des intensites prebleach a l'exclusion de la 1ere (cause effet dark state)
 
 		SumPBRef = 0;
-		for(i = 1; i != xFrap - 1; i++)
+		for(i = 0; i != xFrap ; i++)
 			SumPBRef += RefCorrBack[i];											// determination de maxRef, valeur utilisee pour normaliser la courbe de FRAP a 1
-		maxRef = SumPBRef / (xFrap - 2);										// maxRef est la moyenne des intensites prebleach a l'exclusion de la 1ere (cause effet dark state)
+		maxRef = SumPBRef / (xFrap );										// maxRef est la moyenne des intensites prebleach a l'exclusion de la 1ere (cause effet dark state)
 
 		NormFrap = newArray(nbSliceStack);
 		NormRef  = newArray(nbSliceStack);
@@ -452,12 +452,12 @@ roiManager("Sort");																					//pour que les ROI soient toujours dans 
 
 
 		//****** Selection de la portion de courbe à considéerer pour le fit 
-		RecimageTime = newArray(nbSliceStack - xFrap + 1);							//t0 = pour le point xFrap 
-		RecFrap      = newArray(nbSliceStack - xFrap + 1);							
-		for (i = 0; i != nbSliceStack - xFrap + 1; i++)
+		RecimageTime = newArray(nbSliceStack - xFrap );							//t0 = pour le point xFrap 
+		RecFrap      = newArray(nbSliceStack - xFrap );							
+		for (i = 0; i != nbSliceStack - xFrap ; i++)
 		{
-			RecimageTime[i] = imageTime[i + xFrap - 1] - imageTime[xFrap - 1];
-			RecFrap     [i] = NFrap   [i + xFrap - 1];
+			RecimageTime[i] = imageTime[i + xFrap ] - imageTime[xFrap ];
+			RecFrap     [i] = NFrap   [i + xFrap ];
 		}
 
 		//********Fit sur toute la courbe ou selection d'une plage (limite en temps) 			
@@ -514,7 +514,7 @@ roiManager("Sort");																					//pour que les ROI soient toujours dans 
 
 
 		Plot.create    ("Fit", "Temps", "Intensite", XFrapToFit, FitFrap);
-		Plot.setLimits (0, XFrapToFit[FrapLength - 1]*0.95, NFrap[xFrap - 1] * 0.75, 1.1);
+		Plot.setLimits (0, XFrapToFit[FrapLength-1 ]*0.95, NFrap[xFrap ] * 0.75, 1.1);
 		Plot.setColor  ("black"); 
 		Plot.setColor  ("red"); 
 		Plot.add       ("circles", XFrapToFit, YFrapToFit); 
@@ -669,33 +669,36 @@ roiManager("Sort");																					//pour que les ROI soient toujours dans 
 	selectWindow(SequenceName);
 	setSlice(1);
 	getStatistics(area, meanMin);
-	for (i = 2; i != nbSliceStack; i++)
+	for (i = 1; i != nbSliceStack; i++)
 	{
-		setSlice(i + 1);
+		setSlice(i );
 		getStatistics(area, mean);
 		if(mean < meanMin)
 		{
 			meanMin		= mean;
-			frapIndex	= i;
+			frapIndex	= i-1;
 		}
 	}
 	setSlice(1);
-	frapIndex++;
+	//frapIndex++;
 	xFrap=frapIndex;
-	print (xFrap);
+	print ("xfrap=", xFrap);
+
+
 
 // normalisation à 1
 
 		// ****** Premiere normalisation (Normalisation a 1 de Frap et Ref)
 		SumPBFrap = 0;
-		for (i = 1; i != xFrap - 1; i++)
+		
+		for (i = 0; i != xFrap ; i++)
 			SumPBFrap += FrapCorrBack[i];											// determination de maxFrap, valeur utilisee pour normaliser la courbe de FRAP a 1
-		maxFrap = SumPBFrap / (xFrap - 2);										// maxFrap est la moyenne des intensites prebleach a l'exclusion de la 1ere (cause effet dark state)
+		maxFrap = SumPBFrap / (xFrap );										// maxFrap est la moyenne des intensites prebleach a l'exclusion de la 1ere (cause effet dark state)
 
 		SumPBRef = 0;
-		for(i = 1; i != xFrap - 1; i++)
+		for(i = 0; i != xFrap ; i++)
 			SumPBRef += RefCorrBack[i];											// determination de maxRef, valeur utilisee pour normaliser la courbe de FRAP a 1
-		maxRef = SumPBRef / (xFrap - 2);										// maxRef est la moyenne des intensites prebleach a l'exclusion de la 1ere (cause effet dark state)
+		maxRef = SumPBRef / (xFrap );										// maxRef est la moyenne des intensites prebleach a l'exclusion de la 1ere (cause effet dark state)
 
 		NormFrap = newArray(nbSliceStack);
 		NormRef  = newArray(nbSliceStack);
@@ -749,12 +752,12 @@ roiManager("Sort");																					//pour que les ROI soient toujours dans 
 
 
 		//****** Selection de la portion de courbe à considéerer pour le fit 
-		RecimageTime = newArray(nbSliceStack - xFrap + 1);							//t0 = pour le point xFrap 
-		RecFrap      = newArray(nbSliceStack - xFrap + 1);							
-		for (i = 0; i != nbSliceStack - xFrap + 1; i++)
-		{
-			RecimageTime[i] = imageTime[i + xFrap - 1] - imageTime[xFrap - 1];
-			RecFrap     [i] = NFrap   [i + xFrap - 1];
+		RecimageTime = newArray(nbSliceStack - xFrap );							//t0 = pour le point xFrap 
+		RecFrap      = newArray(nbSliceStack - xFrap );							
+		for (i = 0; i != nbSliceStack - xFrap ; i++){
+		
+			RecimageTime[i] = imageTime[i + xFrap ] - imageTime[xFrap ];
+			RecFrap     [i] = NFrap   [i + xFrap ];
 		}
 
 		//********Fit sur toute la courbe ou selection d'une plage (limite en temps) 			
@@ -815,7 +818,7 @@ roiManager("Sort");																					//pour que les ROI soient toujours dans 
 
 
 		Plot.create    ("Fit", "Temps", "Intensite", XFrapToFit, FitFrap);
-		Plot.setLimits (0, XFrapToFit[FrapLength - 1]*0.95, NFrap[xFrap - 1] * 0.75, 1.1);
+		Plot.setLimits (0, XFrapToFit[FrapLength - 1]*0.95, NFrap[xFrap ] * 0.75, 1.1);
 		Plot.setColor  ("black"); 
 		Plot.setColor  ("red"); 
 		Plot.add       ("circles", XFrapToFit, YFrapToFit); 
