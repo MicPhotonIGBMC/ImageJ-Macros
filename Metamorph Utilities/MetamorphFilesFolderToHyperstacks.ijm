@@ -88,7 +88,7 @@
 * 1. traiter le cas RGB (ImageJ authorise hyperstacks XYZCT RGB (multi-canaux)).
 * 2. z-range autour du slice le + fort du canal d'interet pour t median
 */
-var version = "44a43";
+var version = "44a45";
 var osNames = newArray("Mac OS X","Linux","Windows");
 var osName = getInfo("os.name");
 var dbug = false;//not used
@@ -642,7 +642,7 @@ function execute() {
 	setBatchMode(true);
 	roiImages = roiImageList(dir1+"ImagesWithRois");
 	setBatchMode(false);
-	if (roiImages.length==0) {
+	if (crop && roiImages.length==0) {
 		msg = "\nCrop at import but no images from which "+
 			"get rois found in\n"+dir1+"ImagesWithRois"+
 			"\nMetamorphFilesFolderToHyperstacks will exit.";
@@ -1243,6 +1243,7 @@ function dataReductionDialog() {
 	Dialog.addMessage(msg);
 	Dialog.addCheckbox("Extract Regions", crop);
 	Dialog.addCheckbox("Help for Extract Regions", false);
+	//cropChoices = newArray("None", "Optimize Speed", "Economise Memory");
 	cropChoices = newArray("Optimize Speed", "Economise Memory");
 	Dialog.addChoice("Crop at import:",
 		cropChoices, cropChoices[0]);
@@ -1273,6 +1274,7 @@ function dataReductionDialog() {
 	resizeFactor = Dialog.getNumber();
 	if (resizeFactor==0) resizeFactor = 1;
 	crop = Dialog.getCheckbox();
+	//print("dataReductionDialog(): crop = "+crop);
 	if (crop) File.makeDirectory(dir1+"ImagesWithRois");
 	msg1 = "Any rois-image in  ImagesWithRois  folder must be a copy\n"+
 		"of an iput image of the series or position to be croped.\n \n"+
@@ -1827,8 +1829,7 @@ function positionsSeriesBySeriesDialog(filenames) {
 		n = positionNumbers[k];
 		print("positionNumbers["+k+"] = "+positionNumbers[k]);
 		//print("seriesNames["+k+"] = "+seriesNames[k]);
-		if (doSeries[k]) {//ESSAI
-		//if (doSeries[k] && n>1) {
+		if (doSeries[k] && n>1) {
 			multiposSeries++;
 		}
 	}
@@ -1894,6 +1895,7 @@ function positionsSeriesBySeriesDialog(filenames) {
 					//positionOK = positionExists[i];//isCompletePosition: pb
 					if (i==positionsSeriesBySeries.length) break;
 					//if (positionsSeriesBySeries[i]=="0") continue;
+					if (positionsSeriesBySeries[i]=="") continue;//ESSAI
 					if (positionsSeriesBySeries[i]==0) continue;
 					n2++;
 				}
@@ -1952,6 +1954,7 @@ function positionsSeriesBySeriesDialog(filenames) {
 							userPositionsSeriesBySeries[i] = false;
 						}
 						else {
+							if (positionsSeriesBySeries[i]=="") continue;
 							if (positionsSeriesBySeries[i]==0) continue;
 							if (Dialog.getCheckbox())
 								userPositionsSeriesBySeries[i] =
@@ -2092,6 +2095,28 @@ function filterList(list, fileFilter, excludingFilter) {
 	return list2;
 }
 
+/** Removes singlets (files constituting series by themself, for instance
+ * output files of this macro) from list. 
+ * Called after filterList(list, fileFilter, excludingFilter) */
+function removeSinglets(list) {
+	list2 = newArray(list.length);
+	j = 0; k = 0;
+	for (i=0; i<list.length; i++) {
+		fname = list[i];
+		if (indexOf(fname, ".") < 1) continue;
+		fname = substring(fname, 0, lastIndexOf(fname, "."));
+		if (!matches(fname, ".*_t\\d+") && !matches(fname, ".*_w\\d+.*" )) {
+			if (k++==0)
+				print("\nSinglets or Non Metamorph-acquired-unprocessed files, "+
+						"excluded from processing:");
+			print(list[i]);
+			continue;
+		}
+		list2[j++] = list[i];
+	}
+	return Array.trim(list2, j);
+}
+
 /* Returns 'filenames' without singlets (files building series by themselves, 
 * for instance output files of this macro or non Metamorph files). 
 * Called after filterList(list, fileFilter, excludingFilter)
@@ -2099,8 +2124,8 @@ function filterList(list, fileFilter, excludingFilter) {
 * series renamed with an extra-string at begin of filename. To eliminate such
 * files, should removeUnconsistentSeries(seriesNames, list, useNDFile)
 * after series are built */
-function removeSinglets(filenames) {
-	dbg = false;
+function removeSinglets_BUG(filenames) {
+	dbg = true;
 	list2 = newArray(filenames.length);
 	regex1 = ".*_t\\d+\\."+extensionsRegex;
 	regex2 = ".*_w\\d+\\."+extensionsRegex;
@@ -2317,7 +2342,7 @@ function getChannelRightDelimiter(fname, sername) {
 		fname = substring(fname, lengthOf(sername));
 	if (matches(fname, ".*_s\\d{1,3}.*"))
 		return substring(fname, lastIndexOf(fname, "_s"));
-	if (matches(str, ".*_t\\d{1,5}.*"))
+	if (matches(fname, ".*_t\\d{1,5}.*"))
 		return substring(fname, lastIndexOf(fname, "_t"));
 	return substring(fname, lastIndexOf(fname, "."));
 }
@@ -3458,7 +3483,7 @@ function getDescriptionTag(path, IFD, imgID, use_tiff_tags_plugin) {
 			return tag;
 		}
 	}
-	if (isOpen(imgID) {
+	if (isOpen(imgID)) {
 		selectImage(imgID);
 		print("getDescriptionTag of open image ("+getTitle+")");
 		tag = getImageInfo();//returns info of 1st slice only
@@ -3978,9 +4003,15 @@ function keepSlices(slice1, slice2) {
 		return;
 	}
 	setSlice(zSize);
-	for (s=zSize; s>slice2; s--) run("Delete Slice");
+	for (s=zSize; s>slice2; s--) {
+		if (nSlices>1)
+		run("Delete Slice");
+	}
 	setSlice(1);
-	for (s=1; s<slice1; s++) run("Delete Slice");
+	for (s=1; s<slice1; s++) {
+		if (nSlices>1)
+		run("Delete Slice");
+	}
 }
 
 /* Opens image stack 'path' from 'startZ' to 'stopZ'.
@@ -4392,6 +4423,7 @@ function processFolder() {
 			}
 			//if (!isCompletePosition[j]) continue;//problem
 			if (positionIndex2==(positionNumbers[i])+1) break;
+			str3a = "";
 			if (ismultiposition) {
 				str3 = userPositionsSeriesBySeries[j];
 				str3a = str3;
@@ -5027,6 +5059,7 @@ function processFolder2() {
 			}
 			//if (!isCompletePosition[j]) continue;//problem
 			if (positionIndex2==(positionNumbers[i])+1) break;
+			str3a = "";
 			if (ismultiposition) {
 				str3 = userPositionsSeriesBySeries[j];
 				str3a = str3;
