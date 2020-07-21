@@ -88,7 +88,7 @@
 * 1. traiter le cas RGB (ImageJ authorise hyperstacks XYZCT RGB (multi-canaux)).
 * 2. z-range autour du slice le + fort du canal d'interet pour t median
 */
-var version = "44a45";
+var version = "44a47";
 var osNames = newArray("Mac OS X","Linux","Windows");
 var osName = getInfo("os.name");
 var dbug = false;//not used
@@ -3327,6 +3327,7 @@ function printMetadata() {
 * (pixelsX etc.) to value found in tag explored from searchStartIndex
 * and returns the new searchStartIndex for next call */
 function extractValue(tag, paramIndex, searchStartIndex) {
+	lineEndsWith_BackslahGreaterThan = false;
 	t0=getTime();
 	dbg = false;
 	if (tag=="" || tag==0) return -1;
@@ -3337,8 +3338,16 @@ function extractValue(tag, paramIndex, searchStartIndex) {
 	index1 = indexOf(tag, param, searchStartIndex);
 	index2 = indexOf(tag, "value=", index1);
 	index3 = indexOf(tag, "/>", index2);
+	if (index3==-1) {
+		index3 = indexOf(tag, "\">", index2);
+		lineEndsWith_BackslahGreaterThan = true;
+	}
 	index4 = indexOf(tag, "/>", index3);
-	valStr = substring(tag, index2+7, index3-1);
+	if (index4==-1) index4 = indexOf(tag, "\">", index3);
+	if (lineEndsWith_BackslahGreaterThan)
+		valStr = substring(tag, index2+7, index3-0);
+	else
+		valStr = substring(tag, index2+7, index3-1);
 	if (dbg) print(param + " = "+valStr);
 	if (i==0) pixelsX = parseInt(valStr);
 	else if (i==1) pixelsY = parseInt(valStr);
@@ -4152,7 +4161,7 @@ function getFrameInterval(filenames, seriesIndex, extensions) {
 function getSpatialCalibration(seriesIndex, channels) {
 	dbg=false;
 	seriesName = seriesNames[seriesIndex];
-	print("\nGet spatial calibration of series "+seriesIndex+" "+seriesName);
+	print("\nGet spatial calibration of series "+seriesIndex+" ("+seriesName+")");
 	nChannels = channels.length;
 	positionStr = "";
 	p=0; for (q=0; q<i; q++) p += positionNumbers[q];
@@ -4167,6 +4176,9 @@ function getSpatialCalibration(seriesIndex, channels) {
 		if (istimeseries) str4 = "_t" + t;
 		for (c=0; c<nChannels; c++) {
 			str2 = channels[c];//= "" if ! multichannelSeries[i]
+			print("str2 = "+str2);
+			print("positionStr = "+positionStr);
+			print("str4 = "+str4);
 			name = seriesName+str2+positionStr+str4+extensions[c];
 			if (dbg) print("name = "+name);
 			path = dir1+name;
@@ -4622,9 +4634,14 @@ function processFolder() {
 					//print("i="+i+" j="+j+" t="+t+" c="+c);
 					//print("pp = "+pp);
 					if (doZprojs && nslices>1) {
-						//run("Z Project...", "projection=["+projTypes[c]+"]");
-						run("Z Project...", "projection=["+
-							projTypes[channelColorIndexes[c]]+"]");
+						run("Z Project...", "projection=["+projTypes[c]+"]");
+
+
+			//BUG
+			//			run("Z Project...", "projection=["+
+			//				projTypes[channelColorIndexes[c]]+"]");
+
+
 						if (to32Bit) run("32-bit");
 						nslices = 1;
 						projID = getImageID();
@@ -5226,9 +5243,15 @@ function processFolder2() {
 
 						inputImageID = getImageID();
 						if (doZprojs && nSlices>1) {
-							run("Z Project...", "projection=["+
-								projTypes[channelColorIndexes[c]]+"]");
-							projID = getImageID();
+
+							run("Z Project...", "projection=["+projTypes[c]+"]");
+
+			//BUG
+			//				run("Z Project...", "projection=["+
+			//					projTypes[channelColorIndexes[c]]+"]");
+
+
+						projID = getImageID();
 							if (to32Bit) run("32-bit");
 							projID = getImageID();
 							slices = 1;
