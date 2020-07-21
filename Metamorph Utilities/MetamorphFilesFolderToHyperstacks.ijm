@@ -88,7 +88,7 @@
 * 1. traiter le cas RGB (ImageJ authorise hyperstacks XYZCT RGB (multi-canaux)).
 * 2. z-range autour du slice le + fort du canal d'interet pour t median
 */
-var version = "44a48";
+var version = "44a49";
 var osNames = newArray("Mac OS X","Linux","Windows");
 var osName = getInfo("os.name");
 var dbug = false;//not used
@@ -4769,9 +4769,9 @@ function processFolder() {
 			id = getImageID();
 			//labelChannels(id, usedChannels);
 			//labelChannels(id, channels);
-			labelChannels(id, reorderedChannels);
+			labelChannels(id, reorderedChannels);//ok, doesn't need reorderedChannelIndexes
 			id = getImageID();
-			enhanceContrast(id, saturations);
+			enhanceContrast(id, saturations);//ok, doesn't need reorderedChannelIndexes
 			Stack.getDimensions(w, h, nch, slices, frames);
 			if (type!="RGB"&& nch==1 && channels[0]=="") {//possible problem
 			//if (nch==1) {
@@ -5430,8 +5430,8 @@ function processFolder2() {
 //les luts sont r, g, b, gray, cyan, magenta, yellow
 				if (type!="RGB")
 					setLuts(id, channelColorIndexes);
-				enhanceContrast(id, saturations);
-				labelChannels(id, reorderedChannels);
+				enhanceContrast(id, saturations);//ok, doesn't need reorderedChannelIndexes
+				labelChannels(id, reorderedChannels);//ok, doesn't need reorderedChannelIndexes
 				//labelChannels(id, channels);
 				Stack.getDimensions(w,h,nch,slices,frames);
 				if (type!="RGB"&& nch==1 && channels[0]=="") {//possible problem
