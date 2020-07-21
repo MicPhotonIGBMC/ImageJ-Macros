@@ -88,7 +88,7 @@
 * 1. traiter le cas RGB (ImageJ authorise hyperstacks XYZCT RGB (multi-canaux)).
 * 2. z-range autour du slice le + fort du canal d'interet pour t median
 */
-var version = "44a47";
+var version = "44a48";
 var osNames = newArray("Mac OS X","Linux","Windows");
 var osName = getInfo("os.name");
 var dbug = false;//not used
@@ -4164,7 +4164,10 @@ function getSpatialCalibration(seriesIndex, channels) {
 	print("\nGet spatial calibration of series "+seriesIndex+" ("+seriesName+")");
 	nChannels = channels.length;
 	positionStr = "";
-	p=0; for (q=0; q<i; q++) p += positionNumbers[q];
+	//BUG p is wrong
+	p=0; for (q=0; q<positionNumbers.length; q++) p += positionNumbers[q];
+	p -= 1;
+	print("p = "+ p);
 	positionStr = positionsSeriesBySeries[p];//1st position of series i
 	maxlength = 0;
 	tpoints = 1;
@@ -4219,6 +4222,7 @@ function getSpatialCalibration(seriesIndex, channels) {
 }
 
 function processFolder() {
+	print("\nprocessFolder()");
 	dbg=false;
 	setBatchMode(true);
 	logCount = 0;
@@ -4329,11 +4333,30 @@ function processFolder() {
 			print("compositeStrs["+k+"] = "+compositeStrs[k]);
 		}
 		//to be merged, channels must be reordered by increasing c numbers
-		reorderedChannels = reorderArray(channels, channels, compositeStrs);
+		reorderedChannels = reorderArray(channels, channels, compositeStrs);//array of strings
 		reorderedCompositeStrs = reorderArray(
 									compositeStrs, channels, compositeStrs);
 		seriesColors = reorderArray(seriesColors, channels, compositeStrs);
 		saturations = reorderArray(saturations, channels, compositeStrs);
+
+
+
+
+		//Debug of wrong projection types
+		reorderedChannelIndexes = newArray(channels.length);
+		for (k=0; k<channels.length; k++) {
+			for (k2=0; k2<channels.length; k2++) {
+				if (reorderedChannels[k2]==channels[k]) {
+					reorderedChannelIndexes[k] = k2;
+					break;
+				}
+			}
+		}
+
+
+
+
+		//POSSIBLE BUG
 /*
 		if active, projection-types etc not assigned to right channels
 		channelColorIndexes = computeColorIndexes(
@@ -4373,13 +4396,16 @@ function processFolder() {
 			acquisitionDays = newArray(2); acquisitionTimes = newArray(2);
 		}
 		doZprojs = doZprojForChannelSequences[channelGroupIndex];
+		//POSSIBLE BUG
 		projTypes = toArray(
 					projTypesForChannelSequences[channelGroupIndex], ",");
+
 		for (k=0; k<projTypes.length; k++) {
 			print("projTypes["+k+"]="+projTypes[k]);
 			print("channelColorIndexes["+k+"]="+channelColorIndexes[k]);
 			print("reorderedChannels["+k+"]="+reorderedChannels[k]);
 		}
+
 		if (doZprojs) to32Bit = needs32Bit(projTypes);
 		print("to32Bit="+to32Bit);
 		startT = firstTimePoint;
@@ -4634,14 +4660,15 @@ function processFolder() {
 					//print("i="+i+" j="+j+" t="+t+" c="+c);
 					//print("pp = "+pp);
 					if (doZprojs && nslices>1) {
+			//			print("Image: "+getTitle());
+			//			print ("c = "+c+" : projection=["+projTypes[reorderedChannelIndexes[c]]+"]");
+						run("Z Project...", "projection=["+projTypes[reorderedChannelIndexes[c]]+"]");
+/*
+						//wrong projection types (permutated)
+						print("Image: "+getTitle());
+						print ("c = "+c+" : projection=["+projTypes[c]+"]");//WRONG channel
 						run("Z Project...", "projection=["+projTypes[c]+"]");
-
-
-			//BUG
-			//			run("Z Project...", "projection=["+
-			//				projTypes[channelColorIndexes[c]]+"]");
-
-
+*/
 						if (to32Bit) run("32-bit");
 						nslices = 1;
 						projID = getImageID();
@@ -4805,6 +4832,7 @@ function processFolder() {
 
 
 function processFolder2() {
+	print("\nprocessFolder2()");
 	dbg = false;
 	setBatchMode(true);
 	List.clear();
@@ -4924,6 +4952,23 @@ function processFolder2() {
 									compositeStrs, channels, compositeStrs);
 		seriesColors = reorderArray(seriesColors, channels, compositeStrs);
 		saturations = reorderArray(saturations, channels, compositeStrs);
+
+
+
+
+		//Debug of wrong projection types
+		reorderedChannelIndexes = newArray(channels.length);
+		for (k=0; k<channels.length; k++) {
+			for (k2=0; k2<channels.length; k2++) {
+				if (reorderedChannels[k2]==channels[k]) {
+					reorderedChannelIndexes[k] = k2;
+					break;
+				}
+			}
+		}
+
+
+
 
 //		print("Process folder(): computeColorIndexes(chns, outputColors):");
 //		Contrairement a processFolder() ne permute pas les projection-types
@@ -5243,15 +5288,16 @@ function processFolder2() {
 
 						inputImageID = getImageID();
 						if (doZprojs && nSlices>1) {
+/*
+							run("Z Project...", "projection=["+projTypes[c]+"]");//wrong channels
+*/
 
-							run("Z Project...", "projection=["+projTypes[c]+"]");
+					//		print("Image: "+getTitle());
+					//		print ("c="+c+": projection=["+projTypes[reorderedChannelIndexes[c]]+"]");
+							run("Z Project...",
+									"projection=["+projTypes[reorderedChannelIndexes[c]]+"]");
 
-			//BUG
-			//				run("Z Project...", "projection=["+
-			//					projTypes[channelColorIndexes[c]]+"]");
-
-
-						projID = getImageID();
+							projID = getImageID();
 							if (to32Bit) run("32-bit");
 							projID = getImageID();
 							slices = 1;
