@@ -11,4 +11,5 @@ Contributors:
   - Erwan Grandgirard
   - Elvire Guiot
   - Yves Lutz
+  - Marine Silvin
   - Bertrand Vernay
