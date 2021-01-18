@@ -1,4 +1,10 @@
 setBatchMode(true);
+
+List.setCommands;
+if (List.get("PluginName")!="LabelMap to ROI Manager (2D)") {
+	print("Please activate the SCF MPI CBG update site");
+} 
+
 roiManager("reset");
 
 dir1 = getDirectory("Source");
