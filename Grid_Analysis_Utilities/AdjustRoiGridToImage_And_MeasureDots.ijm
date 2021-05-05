@@ -61,7 +61,7 @@
  * well outlines for images at resolution #2 and #3.
  */
 
-var version = 46;
+var version = 63;
 var macroname = "AdjustRoiGridToImage_And_MeasureDots_"+version;
 var copyRight = "Author: Marcel Boeglin February - April 2021";
 var email = "boeglin@igbmc.fr";
@@ -75,33 +75,23 @@ var wellThrMethodsBF = newArray("Default", "Huang", "IsoData", "Li",
 								"RenyEntropy", "Triangle", "Yen");
 var wellsThrMethodBF = "Default";
 
-//NOT USED
-/* AutoThreshold methods for Well detection from Fluo inside an Roi 
- somewhat larger than well-size given by user; 
- uses autofluorescence in empty wells
- Needs preliminary wells detection in brightfield */
-var wellThrMethodsFluo = newArray("Huang", "Mean", "Otsu");
-var wellThrMethodFluo = "Huang";
-var refineWellShapesFromFluo = false;
-//NOT USED
-
 /* Fluo autoThresholds inside Rois somewhat larger than wells
  for DotShape analyzis */
 //Li ? MinError ? Triangle ?
 var dotShapeThrMethods = newArray("Default", "IsoData", "Moments");
 var dotShapeThrMethod = "IsoData";
 var dotsDrawingColor = "green";
+var dotShapesLUT = "ICA inverted";
 
 var roiShapes = newArray("Circles", "Well_Outlines");
 var roiShape = "Circles";
-var roiShape = "Well_Outlines";
+//var roiShape = "Well_Outlines";
 var interpolateWellOutlines = true;
-var interval = 2;//pixels in image #3
-
+var interpol_interval = 2;//pixels in image #3
 
 /* 'doAnalyzeDotShapes' if true, analyze dot patterns
 needs roiShape = "Well_Outlines" */
-var doAnalyzeDotShapes = true;
+var doAnalyzeDotShapes = false;
 var dotShapesAnalyzisThresholdOptions = newArray("Fixed_Threshold",
 	"AutoThreshold");
 var dotShapesAnalyzisThresholdOption = "Fixed_Threshold";
@@ -116,24 +106,37 @@ var minDotAreaRatio = 100;
 
 var drawingColors = newArray("red","green","blue","cyan","magenta","yellow",
 		"white","black","gray","darkgray","orange","pink");
-var wellsDrawingColor = "black";
+var wellsDrawingColor = "green";
 var dbug = false;
-var hideImages = true;
-var dir1, dir2;
+var showImages = false;
+var displayTime = 2000;
+var dir1, dir2, dir3;
 var images;//list of .czi files in dir1
 
 var gridSources = newArray("Disk (grid for #3)","Computation");
 var gridSource = "Computation";
 
 /* Predefined Roi-grid loaded from disk */
-var roisScalingFactor = 0.75;
-var RoiGridPath;
 var RoiGridDir;
 var RoiGridName;
+var RoiGridPath;
+var roisScalingFactor = 0.75;
 var flipRoiGridHorizontally = false;
 //Wells detection in brightfield image
-var expectedWellDiameter=530;//physical units
+var nominalWellDiameter=530;//physical units
 var tolerance=25;//%
+
+var wellCentersX, wellCentersY;// in pixels, in image to be analyzed
+var wellNames;
+
+/** In case of measurements of Integrated Densities in circles, 2 measurements:
+ - in circles smaller than wells
+ - in circles larger than wells
+ these two radii are calculated from nominalWellDiameter */
+var outerCirclesFactor = 1.20;//1.2 * outerCirclesRadius / nominalWellDiameter
+var innerCirclesFactor = 0.60;//0.6 * innerCirclesRadius / nominalWellDiameter
+var outerCirclesRadius = nominalWellDiameter * outerCirclesFactor / 2;
+var innerCirclesRadius = nominalWellDiameter * innerCirclesFactor / 2;
 
 /* Automatic Roi-grid creation
 	It's assumed the grid is scanned row by row from top to bottom
@@ -141,7 +144,7 @@ var tolerance=25;//%
 var gridCenterX, gridCenterY;//physical units
 var xStep, yStep;//physical units
 var gridCols=5, gridRows=5;
-var roisRadius=expectedWellDiameter/2;//physical units, for grid computation
+var roisRadius=nominalWellDiameter/2;//physical units, for grid computation
 var minWellDiameter, maxWellDiameter;
 var scanDirections = newArray("LeftToRight", "RightToLeft");
 var scanDirection="RightToLeft";
@@ -151,8 +154,7 @@ var calculateGridDimensions = false;
 
 var centerRoisIndividually = true;
 
-/*
- * Bug in Bioformat: The Zeiss image dimensions are divided by 3 at each
+/* Bug in Bioformat: The Zeiss image dimensions are divided by 3 at each
  * resolution step: 900 pix in image #1 -> 300 pix in #2, 100 pix in #3
  * but images #2 and #3 have the same pixelSize image #1.
  * To workaround the bug, we multiply pixelWidth & pixelHeight by 
@@ -169,8 +171,6 @@ var wellsDetectionFailed;
 var TopLeft=newArray(2), BottomRight=newArray(2);
 var TopRight=newArray(2), BottomLeft=newArray(2);
 
-var inputImg;
-
 /* Radius of rolling ball for subtract background of BF before segmentation */
 var rollingRadius = 900;//in scaled units (micron)
 /* Apply gaussian blur to brightfield channel for better segmentation */
@@ -182,15 +182,21 @@ var intensityFactor = 1.8;
 var segmentationGamma = 0.80;
 var processedBrightfield;//ID of processed BF for segmentation
 //var resizeFactor;
-var wellSizeCorrectionFactor = 0.99;
+var wellSizeCorrectionFactor = 1.00;
 
 var sampleTilt;
 
 var outputname;
-var outputBitDepth = "8-bit";
-var outputGamma = 0.67;
+var outputSizeFactor = 1.00;
+var outputGamma = 0.5;
 var strokeWidth = 0;
+var Gray_PNG = false;
+var HiLo_PNG = false;
+var Fire_PNG = false;
+var Fire_ZIP = true;
 
+var resultsExtensions = newArray("csv", "txt");
+var resultsExtension = "txt";
 
 /*----------- Macro begin -----------*/
 
@@ -249,12 +255,11 @@ function getParams() {
 		" Bioformat", bugedBioFormat);
 	Dialog.addChoice("Image resolution: #",
 		newArray("1","2","3"), pyramidalResolution);
-
 	Dialog.addMessage("");
 	Dialog.setInsets(0, 0, 0);
 	Dialog.addMessage("Wells detection:");
 	Dialog.addNumber("Expected well diameter",
-		expectedWellDiameter, 2, 7, "(physical units)");
+		nominalWellDiameter, 2, 7, "(physical units)");
 	Dialog.addNumber("Tolerance for well diameter: +/-", tolerance, 0, 5, "%");
 	Dialog.addNumber("Background subtraction radius",
 		rollingRadius, 2, 6, "(physical units)");
@@ -268,7 +273,6 @@ function getParams() {
 		wellThrMethodsBF, wellsThrMethodBF);
 	Dialog.addNumber("Scale detected wells by",
 		wellSizeCorrectionFactor);
-
 	Dialog.addMessage("");
 	Dialog.setInsets(0, 0, 0);
 	Dialog.addMessage("\nRoi-grid adjustment to detected vells:");
@@ -276,22 +280,22 @@ function getParams() {
 	Dialog.addChoice("Measurement-rois shapes", roiShapes, roiShape);
 	Dialog.addCheckbox("Center measurement-rois individually on detected wells",
 		centerRoisIndividually);
-
 	Dialog.addMessage("");
 	Dialog.setInsets(0, 0, 0);
 	Dialog.addMessage("\nOutput Images:");
-	Dialog.addChoice("Bit-Depth", newArray("8-bit","16-bit"), "8-bit");
-	Dialog.addNumber("Gamma", 0.6);
+	labels = newArray("Gray PNG", "HiLo PNG", "Fire PNG", "Fire ZIP");
+	defaults = newArray(Gray_PNG, HiLo_PNG, Fire_PNG, Fire_ZIP);
+	Dialog.addCheckboxGroup(1, 4, labels, defaults);
+	Dialog.addNumber("Size: ",
+		outputSizeFactor, 2, 5, "x size of images #3");
+	Dialog.addNumber("Gamma for Fire LUT outputs", outputGamma);
 	Dialog.addNumber("Wells drawing strokewidth", strokeWidth);
 	Dialog.addChoice("Wells drawing color", drawingColors, wellsDrawingColor);
-
 	Dialog.show();
-
 	bugedBioFormat = Dialog.getCheckbox();
 	pyramidalResolution = Dialog.getChoice();
 	pyramidalResolution *= 1;//convert to a number
-
-	expectedWellDiameter = Dialog.getNumber();
+	nominalWellDiameter = Dialog.getNumber();
 	tolerance = Dialog.getNumber();
 	rollingRadius = Dialog.getNumber();
 	gaussianBlurSigma = Dialog.getNumber();
@@ -299,14 +303,17 @@ function getParams() {
 	intensityFactor = Dialog.getNumber();
 	wellsThrMethodBF = Dialog.getChoice();
 	wellSizeCorrectionFactor = Dialog.getNumber();
-
 	gridSource = Dialog.getChoice();
 	roiShape = Dialog.getChoice();
 	centerRoisIndividually = Dialog.getCheckbox();
-	outputBitDepth = Dialog.getChoice();
+	Gray_PNG = Dialog.getCheckbox();
+	HiLo_PNG = Dialog.getCheckbox();
+	Fire_PNG = Dialog.getCheckbox();
+	Fire_ZIP = Dialog.getCheckbox();
+	outputSizeFactor = Dialog.getNumber();
 	outputGamma = Dialog.getNumber();
-	wellsDrawingColor = Dialog.getChoice();
 	strokeWidth = Dialog.getNumber();
+	wellsDrawingColor = Dialog.getChoice();
 	if (roiShape=="Circles") doAnalyzeDotShapes = false;
 }
 
@@ -343,36 +350,81 @@ function getParams2() {
 		roisRadius = Dialog.getNumber();
 	}
 	if (roiShape=="Well_Outlines") getParams2b();
-	else interpolateWellOutlines = false;
+	else {
+		interpolateWellOutlines = false;
+		getParams2a();
+	}
+}
+
+function getParams2a() {
+	Dialog.create("AdjustRoiGridToImage_And_Measure_"+version+"_params2a");
+	Dialog.addNumber("Outer circles radius = ",
+			outerCirclesFactor, 2, 5, " * nominal wells radius");
+	Dialog.addNumber("Inner circles radius = ",
+			innerCirclesFactor, 2, 5, " * nominal wells radius");
+	Dialog.show();
+	outerCirclesFactor = Dialog.getNumber();
+	innerCirclesFactor = Dialog.getNumber();
 }
 
 function getParams2b() {
 	Dialog.create("AdjustRoiGridToImage_And_Measure_"+version+"_params2b");
 	Dialog.addCheckbox("Interpolate well outlines", interpolateWellOutlines);
 	Dialog.addNumber("Interpolation interval",
-			interval, 0, 4, "pixels in pyramidal resolution image #3");
+			interpol_interval, 0, 4, "pixels in pyramidal resolution image #3");
 	Dialog.show();
 		interpolateWellOutlines = Dialog.getCheckbox();
-		interval = Dialog.getNumber();
+		interpol_interval = Dialog.getNumber();
 }
 
 function getParams3() {
 	Dialog.create("AdjustRoiGridToImage_And_Measure_"+version+"_params3");
-	Dialog.addCheckbox("Analyze dot shapes", doAnalyzeDotShapes);
-	Dialog.addChoice("Threshold option", dotShapesAnalyzisThresholdOptions,
-		dotShapesAnalyzisThresholdOption);
-	Dialog.addChoice("Dots outline color", drawingColors, dotsDrawingColor);
-	Dialog.addCheckbox("Hide intermediate images", hideImages);
-	Dialog.addMessage("(Info: images are not hidden in dot shapes analyzis");
+	if (roiShape=="Well_Outlines") {
+		Dialog.addCheckbox("Analyze dot shapes", doAnalyzeDotShapes);
+		Dialog.addChoice("Threshold option", dotShapesAnalyzisThresholdOptions,
+			dotShapesAnalyzisThresholdOption);
+		Dialog.addChoice("Dots outline color", drawingColors, dotsDrawingColor);
+	}
+	Dialog.addCheckbox("Show intermediate images", showImages);
+	Dialog.addCheckbox("Debug mode", dbug);
+	Dialog.addNumber("Debug image display time",
+		displayTime, 0, 5, "ms");
+	msg = "Notes:\nIn debug mode, images are shown "+
+		"at least during 'Debug image display time'"+
+		"\nImages are always displayed in dot shapes analyzis";
+	Dialog.setInsets(0, 0, 0);
+	Dialog.addMessage(msg);
+	Dialog.addChoice("Results extension", resultsExtensions, resultsExtension);
 	Dialog.show();
-	doAnalyzeDotShapes = Dialog.getCheckbox();
-	dotShapesAnalyzisThresholdOption = Dialog.getChoice();
-	dotsDrawingColor = Dialog.getChoice();
-	hideImages = Dialog.getCheckbox();
-	dbug = !hideImages;
+	if (roiShape=="Well_Outlines") {
+		doAnalyzeDotShapes = Dialog.getCheckbox();
+		dotShapesAnalyzisThresholdOption = Dialog.getChoice();
+		dotsDrawingColor = Dialog.getChoice();
+	}
+	showImages = Dialog.getCheckbox();
+	dbug = Dialog.getCheckbox();
+	displayTime = Dialog.getNumber();
+	if (dbug) showImages = true;
+	resultsExtension = Dialog.getChoice();
 }
 
 function getParams4() {
+	allLuts = getList("LUTs");
+	luts = newArray(allLuts.length);
+	j=0;
+	for (i=0; i<allLuts.length; i++) {
+		if (allLuts[i]=="Fire") luts[j++] = "Fire inverted";
+		if (allLuts[i]=="cool") luts[j++] = "cool inverted";
+		if (allLuts[i]=="Cyan Hot") luts[j++] = "Cyan Hot inverted";
+		if (allLuts[i]=="gem") luts[j++] = "gem inverted";
+		if (allLuts[i]=="ICA") luts[j++] = "ICA inverted";
+		if (allLuts[i]=="ICA3") luts[j++] = "ICA3 inverted";
+		if (allLuts[i]=="Orange Hot") luts[j++] = "Orange Hot inverted";
+		if (allLuts[i]=="thallium") luts[j++] = "thallium inverted";
+	}
+	luts = Array.trim(luts, j);
+	luts = Array.sort(luts);
+
 	Dialog.create("AdjustRoiGridToImage_And_Measure_"+version+"_params4");
 	Dialog.addMessage("Fluorescent dot shapes analyzis");
 	Dialog.addNumber("Ignore particle if area < average well area /",
@@ -386,12 +438,13 @@ function getParams4() {
 			dotShapeThrMethods, dotShapeThrMethod);
 	}
 	Dialog.addNumber("A well is positive if mean >= mean of brightest well /",
-			positiveWellSignalRatio, 0, 7, "");
+		positiveWellSignalRatio, 0, 7, "");
 /*
 	Dialog.addNumber("Positive Well Signal Ratio",
 			positiveWellSignalRatio, 2, 7, "");
 */
 	Dialog.addChoice("Dots outline color", drawingColors, dotsDrawingColor);
+	Dialog.addChoice("Output images LUT", luts, dotShapesLUT);
 	Dialog.show();
 	minDotAreaRatio = Dialog.getNumber();
 	if (dotShapesAnalyzisThresholdOption=="AutoThreshold") {
@@ -399,6 +452,7 @@ function getParams4() {
 	}
 	positiveWellSignalRatio = Dialog.getNumber();
 	dotsDrawingColor = Dialog.getChoice();
+	dotShapesLUT = Dialog.getChoice();
 }
 
 function printParams() {
@@ -406,10 +460,8 @@ function printParams() {
 	print("AdjustRoiGridToImage_And_Measure_"+version);
 	print("bugedBioFormat = "+bugedBioFormat);
 	print("roiShape = "+roiShape);
-
-	print("expectedWellDiameter = "+expectedWellDiameter);
+	print("nominalWellDiameter = "+nominalWellDiameter);
 	print("tolerance = "+tolerance);
-	
 	print("wellSizeCorrectionFactor = "+wellSizeCorrectionFactor);
 	print("gridSource = "+gridSource);
 	print("gridCols = "+gridCols);
@@ -426,9 +478,7 @@ function printParams() {
 	print("segmentationGamma = "+segmentationGamma);
 	print("intensityFactor = "+intensityFactor);
 	print("interpolateWellOutlines = "+interpolateWellOutlines);
-	print("interval = "+interval);
-
-	print("outputBitDepth = "+outputBitDepth);
+	print("interpol_interval = "+interpol_interval);
 	print("outputGamma = "+outputGamma);
 	print("wellsDrawingColor = "+wellsDrawingColor);
 	print("strokeWidth = "+strokeWidth);
@@ -439,27 +489,41 @@ function printParams() {
 	print("minDotAreaRatio = "+minDotAreaRatio);
 	print("positiveWellSignalRatio = "+positiveWellSignalRatio);
 	print("dotsDrawingColor = "+dotsDrawingColor);
+	print("dotShapesLUT = "+dotShapesLUT);
 	print("wellsThrMethodBF = "+wellsThrMethodBF);
-
+	print("Gray_PNG = "+Gray_PNG);
+	print("HiLo_PNG = "+HiLo_PNG);
+	print("Fire_PNG = "+Fire_PNG);
+	print("Fire_ZIP = "+Fire_ZIP);
+	print("outputSizeFactor = "+outputSizeFactor);
 	print("dbug = "+dbug);
+	print("showImages = "+showImages);
+	print("displayTime = "+displayTime);
+	print("resultsExtension = "+resultsExtension);
 }
 
 function processFolder() {
 	print("\nprocessFolder()");
+	if (doAnalyzeDotShapes) {
+		File.makeDirectory(dir2+"DotShapes");
+		dir3 = dir2+"DotShapes"+File.separator;
+		print("dir3 = "+dir3);
+	}
 	//pixelSizeCorrection = 1;
 	//if (pyramidalResolution==2) pixelSizeCorrection = 3;
 	//else if (pyramidalResolution==1) pixelSizeCorrection = 9;
 	pixelSizeCorrection = Math.pow(3, pyramidalResolution - 1);
 	for (i=0; i<nimages; i++) {
+		print("\n");
+		print("Processing "+(i+1)+" / "+nimages+" :");
 		setBatchMode(true);
-		if (dbug) setBatchMode(false);
+		if (showImages) setBatchMode(false);
 		inputpath = dir1 + images[i];
 		openImage(i);
 		if (nImages<1) continue;
-		inputImg = getImageID();
 		img = getTitle();
 		Stack.getDimensions(width, height, channels, slices, frames);
-		print("\nProcessing "+(i+1)+" / "+nimages+" :");
+		//print("\nProcessing "+(i+1)+" / "+nimages+" :");
 		print(img);
 		if (channels<2) {
 			print("At least 2 channels required: skipped"); continue;
@@ -491,13 +555,13 @@ function processFolder() {
 			print("Elapsed time: "+(getTime()-start)/1000+" s");
 			continue;
 		}
-		close();
 		print("Elapsed time: "+(getTime()-start)/1000+" s");
 		selectWindow("Log");
 		saveAs("Text", dir2+"Log_#"+pyramidalResolution+".txt");
 		setBatchMode(false);
 	}
 	print("\nEnd processFolder()");
+	print("nimages = "+nImages);
 }
 
 /* Creates a grid of circular Rois for Zeiss pyramidal resolution #3 image
@@ -539,6 +603,7 @@ function createCircularRoisGridForResolution3(imageID) {
 function createRoiGridForResolution3(centerX, centerY, cols, rows,
 		xStep, yStep, scanDirection, roisRadius, physicalUnits) {
 	print("createRoiGridForResolution3()");
+	wellNames = newArray(cols*rows);
 	factor = 1;
 	if (pyramidalResolution==2) factor = 3;
 	if (pyramidalResolution==1) factor = 9;
@@ -582,6 +647,10 @@ function createRoiGridForResolution3(centerX, centerY, cols, rows,
 				roiManager("add");
 			}
 		}
+	}
+	for (i=0; i<rows*cols; i++) {
+		roiManager("select", i);
+		wellNames[i] = Roi.getName;
 	}
 	roiManager("deselect");
 	Roi.remove;
@@ -632,15 +701,14 @@ function getWellsFromBrightfieldlAsRois(id) {
 		run("Multiply...", "value="+factor);
 	if (segmentationGamma != 1)
 		run("Gamma...", "value="+segmentationGamma);
-
-	if (dbug) wait(1000);
+	if (dbug) wait(displayTime);
 	resetMinAndMax;
 	setAutoThreshold(wellsThrMethodBF+" dark");
-	if (dbug) wait(1000);
+	if (dbug) wait(displayTime);
 	roiManager("reset");
 	run("Set Measurements...", "centroid display redirect=None decimal=3");
-	mindRadius = expectedWellDiameter*(100-tolerance)/200;
-	maxdRadius = expectedWellDiameter*(100+tolerance)/200;
+	mindRadius = nominalWellDiameter*(100-tolerance)/200;
+	maxdRadius = nominalWellDiameter*(100+tolerance)/200;
 	print("mindRadius = "+mindRadius+"    maxdRadius = "+maxdRadius);
 	minSize = 3.14*mindRadius*mindRadius;
 	maxSize = 3.14*maxdRadius*maxdRadius;
@@ -686,13 +754,12 @@ function getGridCenterFromDotsArrayCorners() {
 function getGridSizeFromDotsArrayCorners(fitSquare) {
 	print("getGridSizeFromDotsArrayCorners(fitSquare)");
 	if (wellsDetectionFailed) return;
-	//corners coordinates
+	//corners coordinates:
 	TLx = TopLeft[0]; TRx = TopRight[0];
 	TLy = TopLeft[1]; TRy = TopRight[1];
 	BLx = BottomLeft[0]; BRx = BottomRight[0];
 	BLy = BottomLeft[1]; BRy = BottomRight[1];
-
-	//Average of 2 widths
+	//Average of 2 widths:
 	Txx = (TLx-TRx)*(TLx-TRx);
 	Tyy = (TLy-TRy)*(TLy-TRy);
 	TopWidth = sqrt(Txx+Tyy);
@@ -700,8 +767,7 @@ function getGridSizeFromDotsArrayCorners(fitSquare) {
 	Byy = (BLy-BRy)*(BLy-BRy);
 	BottomWidth = sqrt(Bxx+Byy);
 	gridWidth = (TopWidth+BottomWidth)/2;
-
-	//Average of 2 heights
+	//Average of 2 heights:
 	Lxx = (TLx-BLx)*(TLx-BLx);
 	Lyy = (TLy-BLy)*(TLy-BLy);
 	LeftHeight = sqrt(Lxx+Lyy);
@@ -709,7 +775,6 @@ function getGridSizeFromDotsArrayCorners(fitSquare) {
 	Ryy = (TRy-BRy)*(TRy-BRy);
 	RightHeight = sqrt(Rxx+Ryy);
 	gridHeight = (LeftHeight+RightHeight)/2;
-
 	if (fitSquare) {
 		a = sqrt(gridWidth * gridHeight);
 		gridWidth = gridHeight = a;
@@ -757,7 +822,7 @@ function getDotsArrayCornersFromRoiManager() {
 	BottomLeft[0]=xmin; BottomLeft[1]=ymax;
 	selectImage(processedBrightfield);
 	setOption("Changes", false);
-	if (dbug) wait(1000);
+	if (dbug) wait(displayTime);
 	print("End getDotsArrayCornersFromRoiManager()");
 }
 
@@ -782,10 +847,9 @@ function replaceGridCirclesByWellShapes(id, scaleFactor) {
 		wait(50);
 		doWand(x+w/2, y+h/2);//fails if bounds center outside selection
 		run("Scale... ", "x="+scaleFactor+" y="+scaleFactor+" centered");
-		//run("Interpolate", "interval=2 smooth adjust");
 
 		if (interpolateWellOutlines) {
-			run("Interpolate", "interval="+interval+" smooth adjust");
+			run("Interpolate", "interval="+interpol_interval+" smooth adjust");
 		}
 		Overlay.addSelection;
 	}
@@ -807,8 +871,8 @@ function replaceGridCirclesByWellShapes(id, scaleFactor) {
  * - get coordinates X, Y from Results
  * - create circle centered on (X,Y) of radius roisRadius
  * - roiManager("update") etc */
-function refineRoisPositionsIndividually(id) {
-	print("refineRoisPositionsIndividually()");
+function refineCirclesPositionsIndividually(id) {
+	print("refineCirclesPositionsIndividually()");
 	selectImage(id);
 	run("Set Measurements...", "centroid display redirect=None decimal=3");
 	r = roisRadius/sqrt(pixelWidth*pixelHeight);
@@ -817,6 +881,8 @@ function refineRoisPositionsIndividually(id) {
 	minSize *= 2;//if too small, more particles than wells
 	maxSize = minSize*8;
 	nrois = roiManager("count");
+	wellCentersX = newArray(nrois);
+	wellCentersY = newArray(nrois);
 	Overlay.clear;
 	factor = 1;
 	if (pyramidalResolution==2) factor = 3;
@@ -838,6 +904,9 @@ function refineRoisPositionsIndividually(id) {
 		y = getResult("Y", 0);
 		x /= pixelWidth;
 		y /= pixelHeight;
+		//wellCenters at analyzis resolution (1, 2 or 3)
+		wellCentersX[i] = x;
+		wellCentersY[i] = y;
 		if (factor>1) {x /= factor; y /= factor;}
 		//print("x="+x+"  y="+y);
 		makeOval(x-r, y-r, 2*r, 2*r);
@@ -846,7 +915,7 @@ function refineRoisPositionsIndividually(id) {
 	resetThreshold();
 	Roi.remove;
 	replaceRoisInManagerByRoisFromOverlay();
-	print("End refineRoisPositionsIndividually()");
+	print("End refineCirclesPositionsIndividually()");
 	return true;
 }
 
@@ -868,31 +937,44 @@ function renameRoisInManagerAsIncreasingNumbers() {
 	Roi.remove;
 }
 
+/* Adjusts existing or computed Roi-grid to image 'id'
+ Measures signal in fluo channels in each ROI from grid and saves them to dir2
+ Creates control images and saves them to dir2
+ Returns true if analyzis was successfull, false otherwise
+ */
 function analyzeImage(id) {
 	print("analyzeImage(id)");
 	sampleTilt = computeSampleTilt(id);
-	if (wellsDetectionFailed || sampleTilt==NaN) return;
+	if (wellsDetectionFailed || sampleTilt==NaN) return false;
+/*
+	run("Set Measurements...", "area mean standard min shape integrated"+
+		" median redirect=None decimal=3");
+*/
 	//computeSampleTilt creates processedBrightfield at resolution #3
 	if (gridSource=="Disk (grid for #3)") {
 		loadRoiGrid(RoiGridPath);
 		if (flipRoiGridHorizontally) roiGridHorizontalFlip();
 	}
-	else if (gridSource=="Computation") {
+	else if (gridSource=="Computation")
 		createCircularRoisGridForResolution3(id);
-	}
 	aroundImageCenter = true;
 	rotateRois(sampleTilt, aroundImageCenter);
-	//Problem if (!calculateGridDimensions)
 	translation = computeXYShift();
 	tx = translation[0];
 	ty = translation[1];
 	translateRois(tx, ty);//Translate Roi-grid to fit well positions
 	//at this stage, Rois are circular watever origin (disk or computation)
+	outputImageID = 0;
+	outputImageIDs = newArray(channels);
 	if (roiShape=="Circles") {
+		print("\nCircular ROIS");
+		nrois = roiManager("count");
+		print("Rois in Manager : "+nrois);
+
 		if (centerRoisIndividually) {
 			//center circles from grid on wells
-			if (!refineRoisPositionsIndividually(processedBrightfield)) {
-				print("refineRoisPositionsIndividually failed");
+			if (!refineCirclesPositionsIndividually(processedBrightfield)) {
+				print("refineCirclesPositionsIndividually failed");
 				if (isOpen(id)) {
 					selectImage(id);
 					close();
@@ -903,36 +985,84 @@ function analyzeImage(id) {
 		if (gridSource=="Disk (grid for #3)") {
 			if (roisScalingFactor!=1) {
 				//scaleRois(roisScalingFactor);
-				replaceCircularRoisByScaledCircles(roisScalingFactor);
+				replaceRoisInManagerByScaledCircles(roisScalingFactor);
 			}
+		}
+		selectImage(id);
+		scaleRoisToInputImageSize();
+
+		//process outer circles
+		//store circles of nominalWellsRadius in Temp image for recall
+		newImage("tmp", "8-bit", getWidth(), getHeight(), 1);
+		tmpID = getImageID();
+		run("From ROI Manager");
+		nrois = roiManager("count");
+		print("Rois in Manager : "+nrois);
+		replaceRoisInManagerByScaledCircles(outerCirclesFactor);
+		formatRois(strokeWidth, wellsDrawingColor);
+		selectImage(id);
+		for (c=1; c<=channels; c++) {
+			selectImage(id);
+			measureChannel(id, c, outputname, "_OuterCircles");
+			Stack.setChannel(c);
+			Roi.remove;
+			run("Duplicate...", " ");
+			outputImageIDs[c-1] = getImageID();
+			if (dbug) wait(displayTime);
+			Overlay.clear;
+			run("From ROI Manager");
+			outID = outputImageIDs[c-1];
+		}
+
+		//process inner circles
+		//restore circles of nominalWellsRadius from tmp image
+		clearOverlay = true;
+		append = false;
+		overlayToROIManager(tmpID, clearOverlay, append);
+		selectImage(tmpID);
+		close();
+		replaceRoisInManagerByScaledCircles(innerCirclesFactor);
+		formatRois(strokeWidth, wellsDrawingColor);
+		nrois = roiManager("count");
+		suffix = "_Circles";
+		for (c=1; c<=channels; c++) {
+			selectImage(id);
+			measureChannel(id, c, outputname, "_InnerCircles");
+			outID = outputImageIDs[c-1];
+			selectImage(outID);
+			overlaySize = Overlay.size;
+			run("From ROI Manager");
+			setupAndSaveOutputImage(outID, c, channels, outputname, suffix);
 		}
 	}
 	else if (roiShape=="Well_Outlines") {
-		if (refineWellShapesFromFluo) {
-			//not implemented
-		}
-		else {//get from BF
-			if (!replaceGridCirclesByWellShapes(processedBrightfield,
-					wellSizeCorrectionFactor)) {
-				print("replaceGridCirclesByWellShapes failed");
-				if (isOpen(id)) {
-					selectImage(id);
-					close();
-				}
-				return false;
+		if (!replaceGridCirclesByWellShapes(processedBrightfield,
+				wellSizeCorrectionFactor)) {
+			print("replaceGridCirclesByWellShapes failed");
+			if (isOpen(id)) {
+				selectImage(id);
+				close();
 			}
+			return false;
 		}
-	}
-	run("Set Measurements...", "area mean standard min shape integrated"+
-		" median redirect=None decimal=3");
-	//run("Set Measurements...", "area mean standard min shape integrated"+
-	//	" median display redirect=None decimal=3");
-	selectImage(inputImg);
-	scaleRoisToInputImageSize();
-	formatRois();
-	for (c=channels; c>=1; c--) {
-		Stack.setChannel(c);
-		measureChannel(id, c, outputname);
+/*
+		run("Set Measurements...", "area mean standard min shape integrated"+
+			" median redirect=None decimal=3");
+*/
+		selectImage(id);
+		scaleRoisToInputImageSize();
+		formatRois(strokeWidth, wellsDrawingColor);
+		suffix = "_Well-Outlines";
+		for (c=1; c<=channels; c++) {
+			Stack.setChannel(c);
+			measureChannel(id, c, outputname, suffix);
+			run("Duplicate...", " ");
+			outID = getImageID();
+			if (dbug) wait(displayTime);
+			Overlay.clear;
+			run("From ROI Manager");
+			setupAndSaveOutputImage(outID, c, channels, outputname, suffix);
+		}
 	}
 	if (isOpen(processedBrightfield)) {
 		selectImage(processedBrightfield);
@@ -940,14 +1070,153 @@ function analyzeImage(id) {
 	}
 	if (doAnalyzeDotShapes) {
 		selectImage(id);
-		//channel = selectChannelForDotShapeAnalyzis(id);
-		//analyzeDotShapes(id, channel);
 		run("From ROI Manager");//copy well-rois to overlay for later recall
 		roiManager("reset");
 		for (c=1; c<channels; c++) analyzeDotShapes(id, c);
 	}
+	if (isOpen(id)) {
+		selectImage(id);
+		close();
+	}
 	print("End analyzeImage(id)");
+	print("nImages = "+nImages);
 	return true;
+}
+
+function setupAndSaveOutputImage(outputImageID, chn, nchn, outputname, suffix) {
+	selectImage(outputImageID);
+	Roi.remove;
+//	roiManager("show none");
+//	roiManager("Set Line Width", strokeWidth);
+/*
+	for (i=0; i<roiManager("count"); i++) {
+		roiManager("select", i);
+		Overlay.addSelection(wellsDrawingColor, strokeWidth);
+	}
+	roiManager("deselect");
+	Roi.remove;
+*/
+	//roiManager("show none");
+	//run("Overlay Options...", "stroke=red width="+30+" fill=none show");
+	run("Labels...", "color="+wellsDrawingColor+" font=16 bold show use");
+	//Resize output image to a reasonable size
+	fact = 1;
+	if (pyramidalResolution==1) fact = 9;
+	else if (pyramidalResolution==2) fact = 3;
+	fact /= outputSizeFactor;
+	if (fact!=1)
+		run("Size...", "width="+getWidth()/fact+" height="+getHeight()/fact+
+			" depth=1 constrain average interpolation=Bilinear");
+	prefix = outputname+"_chn"+chn+suffix;
+	if (HiLo_PNG) {
+		run("HiLo");
+		if (chn==nchn) {
+			run("Invert LUT");
+			run("Enhance Contrast", "saturated=0.35");
+		}
+			//run("Enhance Contrast", "saturated=0.35");
+		outname = prefix+"_HiLo.png";
+		print("Saving "+outname);
+		saveAs("png", dir2+outname);
+	}
+	if (Gray_PNG) {
+		run("Duplicate...", " ");
+		run("Enhance Contrast", "saturated=0.35");
+		run("Grays");
+		if (chn==nchn)
+			run("Invert LUT");
+		//run("Invert LUT");
+
+		outname = prefix+"_Contrast.png";
+		print("Saving "+outname);
+		saveAs("png", dir2+outname);
+		close();
+	}
+	if (Fire_ZIP || Fire_PNG) {
+		run("Fire");
+		if (chn==nchn) {
+			run("Invert LUT");
+			run("Enhance Contrast", "saturated=0.35");
+		}
+		if (Fire_ZIP) {
+			outname = prefix+"_Fire.zip";
+			print("Saving "+outname);
+			saveAs("zip", dir2+outname);
+		}
+		if (Fire_PNG) {
+			if (outputGamma!=1) {
+				run("RGB Color");
+				if (chn==nchn)
+					run("Gamma...", "value="+1/outputGamma);
+				else
+					run("Gamma...", "value="+outputGamma);
+				prefix += "_Gamma"+outputGamma;
+			}
+			outname = prefix+"_Fire.png";
+			print("Saving "+outname);
+			saveAs("png", dir2+outname);
+		}
+	}
+	close();
+}
+
+/** Measures fluorescence from 'chn' in adjusted Rois-grid (chn < nchannels);
+	Saves results to dir2 */
+function measureChannel(imageID, chn, outputname, suffix) {
+	selectImage(imageID);
+	Stack.getDimensions(w, h, nchn, depth, nframes);
+	if (chn==nchn) return;//don't measure last channel (brightfield)
+	roiManager("remove slice info");
+	Stack.setChannel(chn);
+	run("Clear Results"); 
+	//do measurements
+	//ROI Manager must contain rois to be measured
+	run("Set Measurements...", "area mean standard min shape integrated"+
+		" median redirect=None decimal=3");
+	roiManager("measure");
+	selectWindow("Results");
+	for (r=0; r<getValue("results.count"); r++)
+		Table.set("Image", r, outputname+"_chn"+chn);
+	tableName = outputname+"_chn"+chn+suffix+"."+resultsExtension;
+	//tableName = outputname+"_chn"+chn+"."+resultsExtension;
+	print("Saving "+tableName);
+	saveAs("Results", dir2+tableName);
+	if (isOpen(tableName)) {
+		selectWindow(tableName);
+		run("Close");
+	}
+}
+
+//Test-code
+//	imageID = getImageID();
+//	clearOverlay = false;
+//	append = false;
+//	overlayToROIManager(imageID, clearOverlay, append);
+/*	Copies ROIs from Overlay of image 'sourceImage' to ROI Manager 
+	Clears Overlay if 'clearOverlay' is true 
+	Adds ROIs to last ROI in Manager if 'append' is true,
+	Resets ROI Manger otherwise */
+function overlayToROIManager(sourceImage, clearOverlay, append) {
+	if (!isOpen(sourceImage)) {
+		print("Cannot find image "+sourceImage);
+		return;
+	}
+	id = getImageID();
+	selectImage(sourceImage);
+	nrois = Overlay.size;
+	if (nrois<1) {
+		print("Overlay is empty)");
+		selectImage(id);
+		return;
+	}
+	if (!append) roiManager("reset");
+	for (i=0; i<nrois; i++) {
+		Overlay.activateSelection(i);
+		roiManager("add");
+	}
+	if (clearOverlay) Overlay.clear;
+	Roi.remove;
+	selectImage(id);
 }
 
 function scaleRoisToInputImageSize() {
@@ -955,51 +1224,13 @@ function scaleRoisToInputImageSize() {
 	if (pyramidalResolution==2) factor = 3;
 	else if (pyramidalResolution==1) factor = 9;
 	for (i=0; i<roiManager("count"); i++) {
-		//Necessary, even if factor = 1
+		//Necessary, even if factor == 1
 		roiManager("select", i);
 		if (factor!=1) run("Scale... ", "x="+factor+" y="+factor);
 		roiManager("update");
 	}
 	roiManager("deselect");
 	Roi.remove;
-}
-
-/** Exposure times in increasing channel order
- * Returns the brightest fluorescence channel of image 'id' for which the
- * maximum pixel value is less than 2 thirds of saturation.
- * Channels are assumed to be in increasing intensity order, Last channel
- * to be brightfield. */
-function selectChannelForDotShapeAnalyzis(id) {
-	if (channels<3) return 1;
-	selectImage(id);
-	Stack.setChannel(channels-1);
-	getStatistics(area, mean, min, max, std, histogram);
-	if (max < 2*65535/3) return channels-1;
-	for (c=channels-2; c>=1; c--) {
-		Stack.setChannel(c);
-		getStatistics(area, mean, min, max, std, histogram);
-		if (max < 2*65535/3) return c;
-	}
-	return 1;//all channels saturated
-}
-
-/** Exposure times in decreasing channel order
- * Returns the brightest fluorescence channel of image 'id' for which the
- * maximum pixel value is less than 2 thirds of saturation.
- * Channels are assumed to be in decreasing intensity order,
- * Last channel to be brightfield. */
-function selectChannelForDotShapeAnalyzis_2(id) {
-	if (channels<3) return 1;
-	selectImage(id);
-	Stack.setChannel(1);
-	getStatistics(area, mean, min, max, std, histogram);
-	if (max < 2*65535/3) return 1;
-	for (c=2; c<channels; c++) {
-		Stack.setChannel(c);
-		getStatistics(area, mean, min, max, std, histogram);
-		if (max < 2*65535/3) return c;
-	}
-	return channels-1;//all channels saturated
 }
 
 function analyzeDotShapes(id, channel) {
@@ -1069,15 +1300,17 @@ function analyzeDotShapes(id, channel) {
 			minArea=areas[r]*2;//exclude well from analyzis
 */
 		Overlay.activateSelection(r);
-		run("Scale... ", "x=1.15 y=1.15 centered");
+		//run("Scale... ", "x=1.15 y=1.15 centered");
 		//wait(20);
 		if (dotShapesAnalyzisThresholdOption=="AutoThreshold") {
+			run("Scale... ", "x=1.15 y=1.15 centered");
 			print("means["+(r+1)+"] = "+means[r]);
 			if (means[r]<maxMean/positiveWellSignalRatio)
 				minArea=areas[r]*2;//exclude well from analyzis
 			setAutoThreshold(dotShapeThrMethod+" dark");
+			Overlay.activateSelection(r);
 		}
-		Overlay.activateSelection(r);
+		
 		wait(20);
 		run("Analyze Particles...",
 			"size="+minArea+"-Infinity display add composite");
@@ -1117,8 +1350,6 @@ function analyzeDotShapes(id, channel) {
 		totalParticles += currentParticles;
 //		print("Well_"+(r+1)+" : currentParticles = "+currentParticles);
 	}
-//	roiManager("show none");
-	resetThreshold;
 	Roi.remove;
 	roiManager("deselect");
 	RoiManager.setGroup(0);
@@ -1131,11 +1362,17 @@ function analyzeDotShapes(id, channel) {
 		Overlay.addSelection(dotsDrawingColor, strokeWidth);
 		Overlay.drawLabels(false);
 	}
-	run("Fire");
-	run("Invert LUT");
 	Roi.remove;
-	run("Enhance Contrast", "saturated=0.2");
-	//resetMinAndMax;
+
+	print("LUT: "+dotShapesLUT);
+	doInvert = false;
+	lut = dotShapesLUT;
+	if (endsWith(lut, " inverted")) {
+		lut = substring(lut, 0, indexOf(lut, " inverted"));
+		doInvert = true;
+	}
+	run(lut);
+	if (doInvert) run("Invert LUT");
 
 	//setFont("SansSerif" , fontSize, "antialiased bold");
 	setFont("SansSerif" , fontSize, "antialiased");
@@ -1145,12 +1382,28 @@ function analyzeDotShapes(id, channel) {
 		Overlay.drawString(wellname, wellX[i], wellY[i]);
 	}
 
-	saveAs("ZIP", dir2+outputname+"_chn"+channel+"_shapes.zip");
+	//Resize output image to a reasonable size
+	fact = 1;
+	if (pyramidalResolution==1) fact = 9;
+	else if (pyramidalResolution==2) fact = 3;
+	fact /= outputSizeFactor;
+	if (fact!=1)
+		run("Size...", "width="+getWidth()/fact+" height="+getHeight()/fact+
+			" depth=1 constrain average interpolation=Bilinear");
+	outname = outputname+"_chn"+channel+"_shapes";
+	print("Saving "+outname+"zip");
+	saveAs("ZIP", dir3+outname+".zip");
+	//saveAs("ZIP", dir2+outname+".zip");//old
 	close();
 	selectWindow("Results");
-	saveAs("Results", dir2+outputname+"_chn"+channel+"_shapes.csv");
-	print("End analyzeDotShapes(id, channel)");
-	if (dbug) setBatchMode(true);
+	tableName = outname+"."+resultsExtension;
+	print("Saving "+tableName);
+	saveAs("Results", dir3+tableName);
+	if (isOpen(tableName)) {
+		selectWindow(tableName);
+		run("Close");
+	}
+	if (showImages) setBatchMode(true);
 }
 
 /** Computes the angle by which rotate the Roi-grid to fit the dots
@@ -1199,8 +1452,7 @@ function computeXYShift() {
 	getPixelSize(unit, pixWidth, pixHeight);
 	if (nDots!=gridRows*gridCols) {
 		print("An error occured in wells detection");
-		print("tx="+0);
-		print("ty="+0);
+		print("tx="+0+"  ty="+0);
 		print("End computeXYShift()");
 		return newArray(0,0);
 	}
@@ -1211,8 +1463,7 @@ function computeXYShift() {
 	//while getSelectionBounds returns values in pixels
 	tx0 = TopLeft[0]/pixWidth - (x0+w0/2);
 	ty0 = TopLeft[1]/pixHeight - (y0+h0/2);
-	print("tx0="+tx0);
-	print("ty0="+ty0);
+	print("tx0="+tx0+"\nty0="+ty0);
 
 	rows = sqrt(nDots);
 	roiManager("select", rows-1);//TopRight
@@ -1220,65 +1471,29 @@ function computeXYShift() {
 	Roi.remove;
 	tx1 = TopRight[0]/pixWidth - (x1+w1/2);
 	ty1 = TopRight[1]/pixHeight - (y1+h1/2);
-	print("tx1="+tx1);
-	print("ty1="+ty1);
+	print("tx1="+tx1+"\nty1="+ty1);
 
 	roiManager("select", nDots-1);//BottomRight
 	getSelectionBounds(x2, y2, w2, h2);
 	Roi.remove;
 	tx2 = BottomRight[0]/pixWidth - (x2+w2/2);
 	ty2 = BottomRight[1]/pixHeight - (y2+h2/2);
-	print("tx2="+tx2);
-	print("ty2="+ty2);
+	print("tx2="+tx2+"\nty2="+ty2);
 
 	roiManager("select", nDots-rows);//BottomLeft
 	getSelectionBounds(x3, y3, w3, h3);
 	Roi.remove;
 	tx3 = BottomLeft[0]/pixWidth - (x3+w3/2);
 	ty3 = BottomLeft[1]/pixHeight - (y3+h3/2);
-	print("tx3="+tx3);
-	print("ty3="+ty3);
+	print("tx3="+tx3+"t\ny3="+ty3);
 
 	//average to increase precision
 	tx = (tx0+tx1+tx2+tx3)/4;
 	ty = (ty0+ty1+ty2+ty3)/4;
-	print("tx="+tx);
-	print("ty="+ty);
+	print("tx="+tx+"\nty="+ty);
 
 	print("End computeXYShift()");
 	return newArray(tx,ty));
-}
-
-/** Creates a copy of 'chn' with the adjusted Roi-grid and saves it to  dir2.
-	Measures fluorescence from 'chn' in adjusted Rois-grid (chn < nchannels);
-	Saves results in dir2 */
-function measureChannel(imageID, chn, outputname) {
-	run("Clear Results"); 
-	selectImage(imageID);
-	tit = getTitle();
-	Stack.getDimensions(w, h, nchn, depth, nframes);
-	Stack.setChannel(chn);
-	roiManager("remove slice info");
-	roiManager("Set Line Width", strokeWidth);
-	roiManager("deselect");
-	run("Duplicate...", " ");
-	run("Fire");
-	resetMinAndMax();
-	if (outputBitDepth=="8-bit") run("8-bit");
-	if (outputGamma!=1) run("Gamma...", "value="+outputGamma);
-	run("From ROI Manager");
-	run("Overlay Options...", "stroke=red width="+30+" fill=none show");
-	run("Labels...", "color="+wellsDrawingColor+" font=16 bold show use");
-	roiManager("Show None");
-	saveAs("zip", dir2+outputname+"_chn"+chn+".zip");
-	close();
-	if (chn==nchn) return;//don't measure last channel (brightfield)
-	//run("Clear Results"); 
-	roiManager("measure");
-	selectWindow("Results");
-	for (r=0; r<getValue("results.count"); r++)
-		Table.set("Image", r, outputname+"_chn"+chn);
-	saveAs("Results", dir2+outputname+"_chn"+chn+".csv");
 }
 
 function filterList(list, extension) {
@@ -1297,22 +1512,21 @@ function openImage(index) {
 	run("Bio-Formats Importer", "open=["+path+"] color_mode=Colorized "+
 		"rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT series_"+
 		pyramidalResolution);
-	inputImg = getImageID();
 }
 
 /** Replaces Rois in roiManager by circles
 	of radius the radius of 1st Roi multiplied by 'scale' */
-function replaceCircularRoisByScaledCircles(scale) {
+function replaceRoisInManagerByScaledCircles(scale) {
 	//scaleRois(roisScalingFactor);
 	roiManager("select", 0);
 	getSelectionBounds(xx, yy, ww, hh);
 	radius = sqrt(ww*hh)/2;
 	radius *= scale;
-	replaceRoisByCircles(radius);
+	replaceRoisInManagerByCircles(radius);
 }
 
 /** Replaces Rois in roiManager by circles */
-function replaceRoisByCircles(radius) {
+function replaceRoisInManagerByCircles(radius) {
 	nrois = roiManager("count");
 	for (i=0; i<nrois; i++) {
 		roiManager("select", i);
@@ -1326,8 +1540,49 @@ function replaceRoisByCircles(radius) {
 	Roi.remove;
 }
 
-/** Poor precision for small Rois
-	In case of circular Rois, use replaceRoisByCircles(radius) instead */
+/** Test-code
+id = getImageID();
+radius = 40;
+replaceOverlayRoisByCircles(id, radius);
+*/
+/** Replaces Rois in Overlay by circles */
+function replaceOverlayRoisByCircles(id, radius) {
+	nrois = Overlay.size;
+	if (nrois<1) {
+		print("replaceOverlayRoisByCircles(id, radius) needs an overlay");
+		return;
+	}
+	names = newArray(nrois);
+	for (i=0; i<nrois; i++) {
+		Overlay.activateSelection(i);
+		names[i] = Roi.getName;
+	}
+	roiManager("reset");
+	run("To ROI Manager");
+/*
+	//for (i=0; i<nrois; i++) {
+	for (i=nrois-1; i>=0; i--) {
+		roiManager("select", i);
+		if(selectionType()<2 || selectionType()>7) {
+			roiManager("delete");
+			Roi.remove;
+			roiManager("update");
+			//continue;
+		}
+	}
+*/
+	for (i=0; i<nrois; i++) {
+		roiManager("select", i);
+		roiManager("rename", names[i]);
+	}
+	replaceRoisInManagerByCircles(radius);
+	run("From ROI Manager");
+	roiManager("reset");
+	roiManager("show none");
+}
+
+/** Poor precision for small Rois.
+In case of circular Rois, use replaceRoisInManagerByCircles(radius) instead */
 function scaleRois(scale) {
 	nrois = roiManager("count");
 	for (i=0; i<nrois; i++) {
@@ -1387,11 +1642,11 @@ function loadRoiGrid(path) {
 	Roi.remove;
 }
 
-function formatRois() {
+function formatRois(strokewidth, drawingcolor) {
 	for (i=0; i<roiManager("count"); i++) {
 		roiManager("select", i);
-		roiManager("Set Color", wellsDrawingColor);
-		roiManager("Set Line Width", strokeWidth);
+		roiManager("Set Color", drawingcolor);
+		roiManager("Set Line Width", strokewidth);
 	}
 	roiManager("deselect");
 	Roi.remove;
