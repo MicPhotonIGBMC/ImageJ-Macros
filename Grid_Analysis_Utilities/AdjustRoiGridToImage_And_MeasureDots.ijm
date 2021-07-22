@@ -41,29 +41,14 @@
  * 
  *  The macro saves also to the output folder measurement results as csv files
  *  and a Log file containing the macro parameters and the processed file-list.
- * 
- * 
- *  Author: Marcel Boeglin - February - April 2021
+ *  
+ *  Marcel Boeglin 2021
  *  boeglin@igbmc.fr
- *  
- *  This macro can be modified and redistributed.
- *  Please do not remove the initial author.
- *  
  */
 
-/* 
- * To simplify the code, accelerate execution and avoid malfunction due to bugs
- * of ImageJ occuring with large images, all segmentation and Roi operations
- * are performed at lowest resolution (#3). For the same reasons, rotation and
- * translation of the Roi-grid are computed on the copy of the BF channel
- * reduced to the size of resolution #3 whatever the resolution (#1, #2 or #3)
- * chosen for the signal measurement. The counterpart is less precision in
- * well outlines for images at resolution #2 and #3.
- */
-
-var version = 63;
+var version = 66;
 var macroname = "AdjustRoiGridToImage_And_MeasureDots_"+version;
-var copyRight = "Author: Marcel Boeglin February - April 2021";
+var author = "Marcel Boeglin 2021";
 var email = "boeglin@igbmc.fr";
 
 var bugedBioFormat = true;
@@ -85,7 +70,6 @@ var dotShapesLUT = "ICA inverted";
 
 var roiShapes = newArray("Circles", "Well_Outlines");
 var roiShape = "Circles";
-//var roiShape = "Well_Outlines";
 var interpolateWellOutlines = true;
 var interpol_interval = 2;//pixels in image #3
 
@@ -113,18 +97,27 @@ var displayTime = 2000;
 var dir1, dir2, dir3;
 var images;//list of .czi files in dir1
 
-var gridSources = newArray("Disk (grid for #3)","Computation");
-var gridSource = "Computation";
-
-/* Predefined Roi-grid loaded from disk */
-var RoiGridDir;
-var RoiGridName;
-var RoiGridPath;
-var roisScalingFactor = 0.75;
 var flipRoiGridHorizontally = false;
 //Wells detection in brightfield image
-var nominalWellDiameter=530;//physical units
+var nominalWellDiameter=530;//physical units (5x5 wells)
+var nominalWellDiameter=496;//physical units (3x3 wells)
 var tolerance=25;//%
+
+/* Automatic Roi-grid creation
+	It's assumed the grid is scanned row by row from top to bottom
+	and that rows are all scanned in same direction */
+var gridWidth=4824, gridHeight=4824;//physical units (5x5 wells)
+var gridWidth=5656, gridHeight=5656;//physical units (3x3 wells)
+var gridCenterX, gridCenterY;//physical units
+var xStep, yStep;//physical units
+var gridCols=5, gridRows=5;
+var gridCols=3, gridRows=3;
+var roisRadius=nominalWellDiameter/2;//physical units, for grid computation
+var minWellDiameter, maxWellDiameter;
+var scanDirections = newArray("LeftToRight", "RightToLeft");
+var scanDirection="RightToLeft";
+var calculateGridDimensions = false;
+var fitSquare = true;
 
 var wellCentersX, wellCentersY;// in pixels, in image to be analyzed
 var wellNames;
@@ -138,28 +131,14 @@ var innerCirclesFactor = 0.60;//0.6 * innerCirclesRadius / nominalWellDiameter
 var outerCirclesRadius = nominalWellDiameter * outerCirclesFactor / 2;
 var innerCirclesRadius = nominalWellDiameter * innerCirclesFactor / 2;
 
-/* Automatic Roi-grid creation
-	It's assumed the grid is scanned row by row from top to bottom
-	and that rows are all scanned in same direction */
-var gridCenterX, gridCenterY;//physical units
-var xStep, yStep;//physical units
-var gridCols=5, gridRows=5;
-var roisRadius=nominalWellDiameter/2;//physical units, for grid computation
-var minWellDiameter, maxWellDiameter;
-var scanDirections = newArray("LeftToRight", "RightToLeft");
-var scanDirection="RightToLeft";
-var fitSquare = true;
-var gridWidth=4824, gridHeight=4824;//physical units
-var calculateGridDimensions = false;
-
-var centerRoisIndividually = true;
+var centerRoisIndividually = false;
 
 /* Bug in Bioformat: The Zeiss image dimensions are divided by 3 at each
  * resolution step: 900 pix in image #1 -> 300 pix in #2, 100 pix in #3
  * but images #2 and #3 have the same pixelSize image #1.
  * To workaround the bug, we multiply pixelWidth & pixelHeight by 
  * 3 power (pyramidalResolution - 1) */
-var pyramidalResolution = "2";
+var pyramidalResolution = "1";
 var width, height, channels, slices, frames, npixels;//of image
 var pixelWidth, pixelHeight, unit;
 
@@ -171,8 +150,13 @@ var wellsDetectionFailed;
 var TopLeft=newArray(2), BottomRight=newArray(2);
 var TopRight=newArray(2), BottomLeft=newArray(2);
 
+
+var rollingRadiusOverNominalWellRadius = 2;
 /* Radius of rolling ball for subtract background of BF before segmentation */
-var rollingRadius = 900;//in scaled units (micron)
+//var rollingRadius = rollingRadiusOverNominalWellRadius*nominalWellDiameter;//in scaled units (micron)
+/* Radius of rolling ball for subtract background of BF before segmentation */
+var rollingRadius;//in scaled units (micron)
+
 /* Apply gaussian blur to brightfield channel for better segmentation */
 var gaussianBlurSigma = 2;//in scaled units (micron)
 /*multiply brightfield by this after convert to 8-bit to reduce well intensity
@@ -190,10 +174,10 @@ var outputname;
 var outputSizeFactor = 1.00;
 var outputGamma = 0.5;
 var strokeWidth = 0;
-var Gray_PNG = false;
-var HiLo_PNG = false;
+var Gray_PNG = true;
+var HiLo_PNG = true;
 var Fire_PNG = false;
-var Fire_ZIP = true;
+var Fire_ZIP = false;
 
 var resultsExtensions = newArray("csv", "txt");
 var resultsExtension = "txt";
@@ -202,15 +186,11 @@ var resultsExtension = "txt";
 
 print("\\Clear");
 getParams();
+//roisRadius=nominalWellDiameter/2;//physical units, for grid computation
 getParams2();
 getParams3();
 if (doAnalyzeDotShapes) getParams4();
 
-if (gridSource=="Disk (grid for #3)") {
-	RoiGridPath = File.openDialog("Select RoiGrid");
-	RoiGridDir = File.getDirectory(RoiGridPath);
-	RoiGridName = File.getName(RoiGridPath);
-}
 dir1 = getDirectory("Select input folder with .czi files"); 
 dir2 = getDirectory("Select output folder");
 
@@ -219,7 +199,7 @@ images = filterList(images, ".czi");
 nimages = images.length;
 
 print(macroname);
-print(copyRight);
+print(author);
 print(email);
 print("");
 if (wellsThrMethodBF=="Triangle" || wellsThrMethodBF=="Yen") {
@@ -229,8 +209,8 @@ if (wellsThrMethodBF=="Triangle" || wellsThrMethodBF=="Yen") {
 	segmentationGamma = 1;
 }
 printParams();
-print("RoiGridDir: "+RoiGridDir);
-print("RoiGridName: "+RoiGridName);
+//print("RoiGridDir: "+RoiGridDir);
+//print("RoiGridName: "+RoiGridName);
 IJ.redirectErrorMessages();
 
 //print("\n \nProcessing folder\n ");
@@ -258,11 +238,13 @@ function getParams() {
 	Dialog.addMessage("");
 	Dialog.setInsets(0, 0, 0);
 	Dialog.addMessage("Wells detection:");
-	Dialog.addNumber("Expected well diameter",
+	Dialog.addNumber("Nominal well diameter",
 		nominalWellDiameter, 2, 7, "(physical units)");
 	Dialog.addNumber("Tolerance for well diameter: +/-", tolerance, 0, 5, "%");
-	Dialog.addNumber("Background subtraction radius",
-		rollingRadius, 2, 6, "(physical units)");
+
+	Dialog.addNumber("Background subtraction radius =",
+		rollingRadiusOverNominalWellRadius, 2, 6, "x Nominal well diameter");
+
 	Dialog.addNumber("Gaussian blur sigma",
 		gaussianBlurSigma, 2, 5, "(physical units)");
 	Dialog.addNumber("Gamma",
@@ -276,7 +258,8 @@ function getParams() {
 	Dialog.addMessage("");
 	Dialog.setInsets(0, 0, 0);
 	Dialog.addMessage("\nRoi-grid adjustment to detected vells:");
-	Dialog.addChoice("Roi-grid source", gridSources, gridSource);
+
+
 	Dialog.addChoice("Measurement-rois shapes", roiShapes, roiShape);
 	Dialog.addCheckbox("Center measurement-rois individually on detected wells",
 		centerRoisIndividually);
@@ -297,13 +280,15 @@ function getParams() {
 	pyramidalResolution *= 1;//convert to a number
 	nominalWellDiameter = Dialog.getNumber();
 	tolerance = Dialog.getNumber();
-	rollingRadius = Dialog.getNumber();
+
+	rollingRadiusOverNominalWellRadius = Dialog.getNumber();
+	rollingRadius = rollingRadiusOverNominalWellRadius * nominalWellDiameter / 2;
 	gaussianBlurSigma = Dialog.getNumber();
 	segmentationGamma = Dialog.getNumber();
 	intensityFactor = Dialog.getNumber();
 	wellsThrMethodBF = Dialog.getChoice();
 	wellSizeCorrectionFactor = Dialog.getNumber();
-	gridSource = Dialog.getChoice();
+
 	roiShape = Dialog.getChoice();
 	centerRoisIndividually = Dialog.getCheckbox();
 	Gray_PNG = Dialog.getCheckbox();
@@ -319,36 +304,22 @@ function getParams() {
 
 function getParams2() {
 	Dialog.create("AdjustRoiGridToImage_And_Measure_"+version+"_params2");
-	if (gridSource=="Disk (grid for #3)") {
-		str = "                                                        ";
-		Dialog.addMessage("Roi-grid from Disk:"+str);
-		Dialog.addCheckbox("Flip horizontally",
-			flipRoiGridHorizontally);
-		Dialog.addNumber("Scale rois from grid by", roisScalingFactor);
-	}
-	else if (gridSource=="Computation") {
-		Dialog.addMessage("Roi-grid computation:");
-		Dialog.addCheckbox("Compute grid width & height from "+
-			"detected wells", calculateGridDimensions);
-		Dialog.addNumber("Width", gridWidth, 2, 7, "(physical units)");
-		Dialog.addNumber("Height", gridHeight, 2, 7, "(physical units)");
-		Dialog.addNumber("Columns", gridCols);
-		Dialog.addNumber("Rows", gridRows);
-		Dialog.addNumber("Rois Radius", roisRadius, 3, 6, "(physical units)");
-	}
+	roisRadius=nominalWellDiameter/2;
+	Dialog.addMessage("Roi-grid computation:");
+	Dialog.addNumber("Width", gridWidth, 2, 7, "(physical units)");
+	Dialog.addNumber("Height", gridHeight, 2, 7, "(physical units)");
+	Dialog.addNumber("Columns", gridCols);
+	Dialog.addNumber("Rows", gridRows);
+	Dialog.addNumber("Rois Radius", roisRadius, 3, 6, "(physical units)");
+	Dialog.addCheckbox("Compute grid width & height from "+
+		"detected wells", calculateGridDimensions);
 	Dialog.show();
-	if (gridSource=="Disk (grid for #3)") {
-		flipRoiGridHorizontally = Dialog.getCheckbox();
-		roisScalingFactor = Dialog.getNumber();
-	}
-	else if (gridSource=="Computation)") {
-		calculateGridDimensions = Dialog.getCheckbox();
-		gridWidth = Dialog.getNumber();
-		gridHeight = Dialog.getNumber();
-		gridCols = Dialog.getNumber();
-		gridRows = Dialog.getNumber();
-		roisRadius = Dialog.getNumber();
-	}
+	gridWidth = Dialog.getNumber();
+	gridHeight = Dialog.getNumber();
+	gridCols = Dialog.getNumber();
+	gridRows = Dialog.getNumber();
+	roisRadius = Dialog.getNumber();
+	calculateGridDimensions = Dialog.getCheckbox();
 	if (roiShape=="Well_Outlines") getParams2b();
 	else {
 		interpolateWellOutlines = false;
@@ -373,8 +344,8 @@ function getParams2b() {
 	Dialog.addNumber("Interpolation interval",
 			interpol_interval, 0, 4, "pixels in pyramidal resolution image #3");
 	Dialog.show();
-		interpolateWellOutlines = Dialog.getCheckbox();
-		interpol_interval = Dialog.getNumber();
+	interpolateWellOutlines = Dialog.getCheckbox();
+	interpol_interval = Dialog.getNumber();
 }
 
 function getParams3() {
@@ -463,16 +434,18 @@ function printParams() {
 	print("nominalWellDiameter = "+nominalWellDiameter);
 	print("tolerance = "+tolerance);
 	print("wellSizeCorrectionFactor = "+wellSizeCorrectionFactor);
-	print("gridSource = "+gridSource);
 	print("gridCols = "+gridCols);
 	print("gridRows = "+gridRows);
 	print("calculateGridDimensions = "+calculateGridDimensions);
 	print("roisRadius = "+roisRadius);
 	print("flipRoiGridHorizontally = "+flipRoiGridHorizontally);
-	print("roisScalingFactor = "+roisScalingFactor);
 	print("gridWidth = "+gridWidth);
 	print("gridHeight = "+gridHeight);
 	print("pyramidalResolution = "+pyramidalResolution);
+		rollingRadius = rollingRadiusOverNominalWellRadius * nominalWellDiameter / 2;
+
+	print("rollingRadiusOverNominalWellRadius = "+
+		rollingRadiusOverNominalWellRadius);
 	print("rollingRadius = "+rollingRadius);
 	print("gaussianBlurSigma = "+gaussianBlurSigma);
 	print("segmentationGamma = "+segmentationGamma);
@@ -718,6 +691,8 @@ function getWellsFromBrightfieldlAsRois(id) {
 	detectedWells = roiManager("count");
 	print("Detected "+detectedWells+" wells");
 	resetThreshold;
+	print("gridCols = "+gridCols);
+	print("gridRows = "+gridRows);
 	n=gridRows*gridCols;
 	if (detectedWells!=gridRows*gridCols) {
 		print("An error occured in well detection: should find "+n+"wells");
@@ -873,13 +848,24 @@ function replaceGridCirclesByWellShapes(id, scaleFactor) {
  * - roiManager("update") etc */
 function refineCirclesPositionsIndividually(id) {
 	print("refineCirclesPositionsIndividually()");
+	//setBatchMode("show");
 	selectImage(id);
+//EXPERIMENTAL
+	run("Gaussian Blur...", "sigma=2");
+//exit;
 	run("Set Measurements...", "centroid display redirect=None decimal=3");
 	r = roisRadius/sqrt(pixelWidth*pixelHeight);
-	minSize = 3.14*r;
-	minSize *= minSize;
+/*
+	minSize = 3.14*r*r;
 	minSize *= 2;//if too small, more particles than wells
 	maxSize = minSize*8;
+*/
+print("roisRadius = "+roisRadius);// = nominalWellDiameter/2
+print("nominalWellDiameter = "+nominalWellDiameter);
+	minSize = 3.14*nominalWellDiameter*nominalWellDiameter/4;
+	minSize /= 2;
+	maxSize = minSize * 4;
+
 	nrois = roiManager("count");
 	wellCentersX = newArray(nrois);
 	wellCentersY = newArray(nrois);
@@ -888,12 +874,14 @@ function refineCirclesPositionsIndividually(id) {
 	if (pyramidalResolution==2) factor = 3;
 	else if (pyramidalResolution==1) factor = 9;
 	if (factor>1) r /= factor;
-	print("minSize = "+minSize+"    maxSize = "+maxSize);
+	print("\nminSize = "+minSize+"    maxSize = "+maxSize);
+	print("");
 	for (i=0; i<nrois; i++) {
 		roiManager("select", i);
 		run("Scale... ", "x=1.5 y=1.5 centered");
 		resetMinAndMax;
 		setAutoThreshold(wellsThrMethodBF+" dark");
+//exit;
 		run("Analyze Particles...", "size="+minSize+"-"+maxSize+
 			" show=Nothing display clear include");
 		if (getValue("results.count")!=1) {
@@ -946,17 +934,7 @@ function analyzeImage(id) {
 	print("analyzeImage(id)");
 	sampleTilt = computeSampleTilt(id);
 	if (wellsDetectionFailed || sampleTilt==NaN) return false;
-/*
-	run("Set Measurements...", "area mean standard min shape integrated"+
-		" median redirect=None decimal=3");
-*/
-	//computeSampleTilt creates processedBrightfield at resolution #3
-	if (gridSource=="Disk (grid for #3)") {
-		loadRoiGrid(RoiGridPath);
-		if (flipRoiGridHorizontally) roiGridHorizontalFlip();
-	}
-	else if (gridSource=="Computation")
-		createCircularRoisGridForResolution3(id);
+	createCircularRoisGridForResolution3(id);
 	aroundImageCenter = true;
 	rotateRois(sampleTilt, aroundImageCenter);
 	translation = computeXYShift();
@@ -980,12 +958,6 @@ function analyzeImage(id) {
 					close();
 				}
 				return false;
-			}
-		}
-		if (gridSource=="Disk (grid for #3)") {
-			if (roisScalingFactor!=1) {
-				//scaleRois(roisScalingFactor);
-				replaceRoisInManagerByScaledCircles(roisScalingFactor);
 			}
 		}
 		selectImage(id);
@@ -1086,18 +1058,6 @@ function analyzeImage(id) {
 function setupAndSaveOutputImage(outputImageID, chn, nchn, outputname, suffix) {
 	selectImage(outputImageID);
 	Roi.remove;
-//	roiManager("show none");
-//	roiManager("Set Line Width", strokeWidth);
-/*
-	for (i=0; i<roiManager("count"); i++) {
-		roiManager("select", i);
-		Overlay.addSelection(wellsDrawingColor, strokeWidth);
-	}
-	roiManager("deselect");
-	Roi.remove;
-*/
-	//roiManager("show none");
-	//run("Overlay Options...", "stroke=red width="+30+" fill=none show");
 	run("Labels...", "color="+wellsDrawingColor+" font=16 bold show use");
 	//Resize output image to a reasonable size
 	fact = 1;
@@ -1517,7 +1477,6 @@ function openImage(index) {
 /** Replaces Rois in roiManager by circles
 	of radius the radius of 1st Roi multiplied by 'scale' */
 function replaceRoisInManagerByScaledCircles(scale) {
-	//scaleRois(roisScalingFactor);
 	roiManager("select", 0);
 	getSelectionBounds(xx, yy, ww, hh);
 	radius = sqrt(ww*hh)/2;
